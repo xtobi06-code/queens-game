@@ -18,18 +18,17 @@
     const { useState, useCallback, useEffect, useRef } = React;
 
     const REGION_PALETTES = [
-      { bg: "#A8C8E8", border: "#3A6090", queen: "#1E4D7B" },
-      { bg: "#A8D5B5", border: "#3A8050", queen: "#2E6E42" },
-      { bg: "#E8C5A0", border: "#A8702A", queen: "#7A4810" },
-      { bg: "#D4A8E8", border: "#8040A0", queen: "#5A1880" },
-      { bg: "#E8A8B8", border: "#B03050", queen: "#80183A" },
-      { bg: "#E8E0A0", border: "#A89020", queen: "#6A5810" },
-      { bg: "#A0E0D8", border: "#208878", queen: "#0E5E52" },
-      { bg: "#F0B888", border: "#C06820", queen: "#8A4010" },
-      { bg: "#C0D0F0", border: "#5060A0", queen: "#283878" },
-      { bg: "#C8E89C", border: "#609020", queen: "#3A5A10" },
-      { bg: "#F0A0A0", border: "#C03030", queen: "#801010" },
-      { bg: "#C8B0E0", border: "#6848A0", queen: "#3A2070" },
+      { bg: "#A8C8E8", border: "#3A6090", queen: "#1E4D7B" }, // blau
+      { bg: "#A8D8A8", border: "#3A8040", queen: "#1A5020" }, // grün
+      { bg: "#F0C080", border: "#B07020", queen: "#7A4A00" }, // orange
+      { bg: "#D0A8D8", border: "#8040A0", queen: "#501870" }, // lila
+      { bg: "#F0A0A0", border: "#C03030", queen: "#801010" }, // rot
+      { bg: "#F0E890", border: "#A89800", queen: "#6A6000" }, // gelb
+      { bg: "#A0D8D0", border: "#208878", queen: "#0A5850" }, // türkis
+      { bg: "#F0C0A8", border: "#B06030", queen: "#7A3810" }, // braun
+      { bg: "#B0C0F0", border: "#4050B0", queen: "#203080" }, // indigo
+      { bg: "#C8E8A0", border: "#588020", queen: "#305000" }, // hellgrün
+      { bg: "#F0A8C8", border: "#C03070", queen: "#801040" }, // pink
     ];
 
     function shuffle(arr) {
@@ -206,8 +205,8 @@
     }
 
     function generatePuzzle(n) {
-      const overallDeadline = Date.now() + 8000;
-      const perCandidate = n <= 8 ? 300 : 500;
+      const overallDeadline = Date.now() + (n >= 11 ? 12000 : 8000);
+      const perCandidate = n <= 8 ? 300 : n <= 10 ? 500 : 800;
       let best = null;
       while (Date.now() < overallDeadline) {
         const solution = generateQueenSolution(n);
@@ -248,7 +247,13 @@
     }
 
     function QueensGame() {
-      const [size, setSize] = useState(8);
+      const DIFFICULTIES = [
+        { label: "Einfach", n: 7 },
+        { label: "Mittel",  n: 9 },
+        { label: "Schwer",  n: 11 },
+      ];
+
+      const [size, setSize] = useState(7);
       const [puzzle, setPuzzle] = useState(null);
       const [cells, setCells] = useState({});
       const [errors, setErrors] = useState(new Set());
@@ -258,6 +263,16 @@
       const [running, setRunning] = useState(false);
       const [dragging, setDragging] = useState(false);
       const [hint, setHint] = useState(null);
+      const [showStats, setShowStats] = useState(false);
+
+      // ── Stats (localStorage) ──────────────────────────────────────────────
+      const loadStats = () => {
+        try { return JSON.parse(localStorage.getItem("queens_stats")) || {}; } catch { return {}; }
+      };
+      const saveStats = (s) => {
+        try { localStorage.setItem("queens_stats", JSON.stringify(s)); } catch {}
+      };
+      const [stats, setStats] = useState(loadStats);
 
       const dragStartRef = useRef(null);
       const dragVisitedRef = useRef(null);
@@ -299,7 +314,20 @@
           .map(([k]) => { const [r, c] = k.split(",").map(Number); return { row: r, col: c }; });
         const { errors: errs, solved: s } = validatePlacement(queens, puzzle.n, puzzle.regions);
         setErrors(errs);
-        if (s) { setSolved(true); setRunning(false); }
+        if (s) {
+          setSolved(true); setRunning(false);
+          // update localStorage stats
+          setStats(prev => {
+            const key6 = `best_6`, key8 = `best_8`, key10 = `best_10`;
+            const countKey = `count_${puzzle.n}`;
+            const bestKey = `best_${puzzle.n}`;
+            const next = { ...prev };
+            next[countKey] = (next[countKey] || 0) + 1;
+            if (!next[bestKey] || timer < next[bestKey]) next[bestKey] = timer;
+            saveStats(next);
+            return next;
+          });
+        }
       };
 
       const cycleCell = (row, col) => {
@@ -366,6 +394,7 @@
           fontFamily:"'Segoe UI',system-ui,sans-serif", color:"#8ab4d4" }}>
           <div style={{ fontSize:40, marginBottom:12, opacity:0.8 }}>♛</div>
           <div style={{ fontSize:15, letterSpacing:1 }}>Generiere Puzzle…</div>
+          {size >= 11 && <div style={{ fontSize:12, color:"#556", marginTop:8 }}>Schwer kann einige Sekunden dauern</div>}
         </div>
       );
 
@@ -386,40 +415,81 @@
           paddingTop:20, paddingBottom:40, paddingLeft:16, paddingRight:16,
           boxSizing:"border-box", fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
 
-          <div style={{ textAlign:"center", marginBottom:20 }}>
+          {/* Stats modal */}
+          {showStats && (
+            <div onClick={() => setShowStats(false)} style={{
+              position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:100,
+              display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <div onClick={e => e.stopPropagation()} style={{
+                background:"#16213e", border:"1px solid #334", borderRadius:16,
+                padding:"36px 48px", minWidth:300, width:"85vw", maxWidth:420 }}>
+                <h2 style={{ margin:"0 0 24px", color:"#fff", fontSize:20, letterSpacing:2, textAlign:"center" }}>♛ Statistik</h2>
+                {[{label:"Einfach",n:7},{label:"Mittel",n:9},{label:"Schwer",n:11}].map(({ label, n: s }) => {
+                  const c = stats[`count_${s}`] || 0;
+                  const b = stats[`best_${s}`];
+                  return (
+                    <div key={s} style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
+                      padding:"16px 0", borderBottom:"1px solid #223" }}>
+                      <div style={{ color:"#667", fontSize:14 }}>{label} <span style={{fontSize:11,opacity:0.6}}>{s}×{s}</span></div>
+                      <div style={{ textAlign:"right" }}>
+                        <div style={{ fontSize:16, fontWeight:700, color: c>0?"#8ab4d4":"#334" }}>
+                          {c>0 ? `${c}× gelöst` : "noch nicht gespielt"}
+                        </div>
+                        {b !== undefined && (
+                          <div style={{ fontSize:13, color:"#ffe060" }}>⏱ Bestzeit {formatTime(b)}</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                <button onClick={() => setShowStats(false)} style={{
+                  marginTop:24, width:"100%", padding:10, borderRadius:20,
+                  border:"1px solid #334", background:"rgba(255,255,255,0.05)",
+                  color:"#667", fontSize:14, cursor:"pointer" }}>
+                  Schließen
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div style={{ textAlign:"center", marginBottom:16 }}>
             <h1 style={{ margin:0, fontSize:32, fontWeight:800, letterSpacing:3, color:"#fff",
               textShadow:"0 0 30px rgba(100,180,255,0.4)" }}>♛ QUEENS</h1>
-            <p style={{ margin:"6px 0 0", color:"#8ab4d4", fontSize:13, letterSpacing:1 }}>
-              Je eine Krone pro Zeile · Spalte · Farb-Region · Keine Berührung
-            </p>
           </div>
 
+          {/* Stats button */}
+          <div style={{ marginBottom:10, display:"flex", justifyContent:"center" }}>
+            <button onClick={() => setShowStats(true)}
+              style={{ padding:"6px 18px", borderRadius:20, fontWeight:700, fontSize:14, cursor:"pointer",
+                border:"2px solid #506080", background:"rgba(80,96,128,0.2)", color:"#8ab4d4" }}>
+              📊 Statistik
+            </button>
+          </div>
+
+          {/* Difficulty selectors */}
           <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", justifyContent:"center" }}>
-            {[6, 8, 10].map(s => (
-              <button key={s} onClick={() => { setSize(s); newPuzzle(s); }} style={btn(`${s}×${s}`, null, size === s)}>
-                {s}×{s}
+            {DIFFICULTIES.map(({ label, n: s }) => (
+              <button key={s} onClick={() => { setSize(s); newPuzzle(s); }} style={{
+                padding:"7px 16px", borderRadius:20, border:"2px solid",
+                borderColor: size === s ? "#64b4ff" : "#334",
+                background: size === s ? "rgba(100,180,255,0.15)" : "rgba(255,255,255,0.05)",
+                color: size === s ? "#64b4ff" : "#889",
+                fontWeight:700, fontSize:14, cursor:"pointer", transition:"all .2s",
+                display:"flex", flexDirection:"column", alignItems:"center", gap:1,
+              }}>
+                <span>{label}</span>
+                <span style={{ fontSize:10, opacity:0.6, fontWeight:400 }}>{s}×{s}</span>
               </button>
             ))}
-            <button onClick={() => newPuzzle(size)}
-              style={{ ...btn("↻ Neu", null, false, "#7060c0"), background:"rgba(112,96,192,0.2)", color:"#b0a0f0" }}>
-              ↻ Neu
-            </button>
-            <button onClick={giveHint} disabled={solved || showSolution}
-              style={{ ...btn("💡", null, false, "#d0a040"), background: solved||showSolution ? "rgba(120,120,120,0.1)":"rgba(208,160,64,0.18)", color: solved||showSolution ? "#667":"#e8c060" }}>
-              💡 Tipp
-            </button>
-            <button onClick={() => setShowSolution(s => !s)}
-              style={{ ...btn("", null, false, showSolution?"#c04040":"#606060"), background: showSolution?"rgba(180,80,80,0.2)":"rgba(255,255,255,0.05)", color: showSolution?"#f09090":"#888" }}>
-              {showSolution ? "Lösung verbergen" : "Lösung zeigen"}
-            </button>
           </div>
 
+          {/* Timer & crown counter */}
           <div style={{ display:"flex", gap:24, alignItems:"center", marginBottom:14, color:"#aaa", fontSize:15 }}>
             <span style={{ fontVariantNumeric:"tabular-nums", color: solved?"#80e080":"#64b4ff", fontWeight:700, fontSize:18 }}>
               ⏱ {formatTime(timer)}
             </span>
             <span style={{ color:"#667" }}>
-              {Object.values(cells).filter(v => v === "queen").length}/{n} Kronen
+              {Object.values(cells).filter(v => v === "queen").length}/{n} ♛
             </span>
           </div>
 
@@ -428,6 +498,12 @@
               background:"rgba(80,200,80,0.15)", border:"2px solid #60c060",
               color:"#80e080", fontWeight:800, fontSize:18, letterSpacing:2, textAlign:"center" }}>
               🎉 Gelöst! {formatTime(timer)}
+              {stats[`best_${n}`] === timer && (stats[`count_${n}`] || 0) <= 1
+                ? <div style={{ fontSize:13, fontWeight:600, color:"#a0f0a0", marginTop:4 }}>Erster Rekord! ⭐</div>
+                : stats[`best_${n}`] === timer
+                  ? <div style={{ fontSize:13, fontWeight:600, color:"#ffe060", marginTop:4 }}>🏆 Neuer Rekord!</div>
+                  : <div style={{ fontSize:13, fontWeight:400, color:"#60a060", marginTop:4 }}>Bestzeit: {formatTime(stats[`best_${n}`])}</div>
+              }
             </div>
           )}
 
@@ -515,12 +591,38 @@
             )}
           </div>
 
-          <div style={{ marginTop:18, color:"#556", fontSize:12, textAlign:"center", maxWidth:maxBoard, lineHeight:1.7 }}>
-            <strong style={{ color:"#778" }}>Regeln:</strong> Pro Zeile, Spalte und Farb-Region genau eine Krone.<br/>
-            Zwei Kronen dürfen sich nie berühren — auch nicht diagonal.<br/>
-            <span style={{ color:"#aab" }}>Tippen:</span> leer → ✕ → ♛ → leer &nbsp;·&nbsp;
-            <span style={{ color:"#aab" }}>Wischen:</span> ✕ über mehrere Felder &nbsp;·&nbsp;
-            <span style={{ color:"#e8c060" }}>💡 Tipp</span> zeigt einen sicheren Zug
+          {/* Bottom controls: Lösung · Tipp · Zurücksetzen */}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
+            marginTop:16, width: maxBoard + "px", maxWidth:"100%" }}>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={() => setShowSolution(s => !s)}
+                style={{ padding:"7px 16px", borderRadius:20, fontWeight:700, fontSize:14, cursor:"pointer",
+                  border: showSolution ? "2px solid #c04040" : "2px solid #5060a0",
+                  background: showSolution ? "rgba(180,80,80,0.2)" : "rgba(80,96,160,0.18)",
+                  color: showSolution ? "#f09090" : "#90a8f0" }}>
+                {showSolution ? "Verbergen" : "Lösung"}
+              </button>
+              <button onClick={giveHint} disabled={solved || showSolution}
+                style={{ padding:"7px 16px", borderRadius:20, fontWeight:700, fontSize:16, cursor: solved||showSolution?"default":"pointer",
+                  border:"2px solid #d0a040",
+                  background: solved||showSolution ? "rgba(120,120,120,0.1)" : "rgba(208,160,64,0.18)",
+                  color: solved||showSolution ? "#445" : "#e8c060" }}>
+                💡
+              </button>
+            </div>
+            <button onClick={() => { setCells({}); setErrors(new Set()); setHint(null); setSolved(false); setRunning(true); }}
+              style={{ padding:"7px 16px", borderRadius:20, fontWeight:700, fontSize:14, cursor:"pointer",
+                border:"2px solid #804040",
+                background:"rgba(128,64,64,0.18)",
+                color:"#d08080" }}>
+              ↺ Zurücksetzen
+            </button>
+          </div>
+
+          {/* Legend */}
+          <div style={{ marginTop:16, color:"#445", fontSize:12, textAlign:"center", maxWidth:maxBoard, lineHeight:1.8 }}>
+            Pro Zeile, Spalte und Farb-Region genau eine Krone. Keine zwei Kronen dürfen sich berühren — auch nicht diagonal.<br/>
+            Tippen: leer → ✕ → ♛ → leer · Wischen: ✕ über mehrere Felder
           </div>
         </div>
       );
