@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>♛ Queens</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1a1a2e; overscroll-behavior: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script type="text/babel">
+    const { useState, useCallback, useEffect, useRef } = React;
+
+    const REGION_PALETTES = [
+      { bg: "#A8C8E8", border: "#3A6090", queen: "#1E4D7B" },
+      { bg: "#A8D5B5", border: "#3A8050", queen: "#2E6E42" },
+      { bg: "#E8C5A0", border: "#A8702A", queen: "#7A4810" },
+      { bg: "#D4A8E8", border: "#8040A0", queen: "#5A1880" },
+      { bg: "#E8A8B8", border: "#B03050", queen: "#80183A" },
+      { bg: "#E8E0A0", border: "#A89020", queen: "#6A5810" },
+      { bg: "#A0E0D8", border: "#208878", queen: "#0E5E52" },
+      { bg: "#F0B888", border: "#C06820", queen: "#8A4010" },
+      { bg: "#C0D0F0", border: "#5060A0", queen: "#283878" },
+      { bg: "#C8E89C", border: "#609020", queen: "#3A5A10" },
+      { bg: "#F0A0A0", border: "#C03030", queen: "#801010" },
+      { bg: "#C8B0E0", border: "#6848A0", queen: "#3A2070" },
+    ];
+
+    function shuffle(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    function generateQueenSolution(n) {
+      for (let attempt = 0; attempt < 3000; attempt++) {
+        const cols = shuffle([...Array(n).keys()]);
+        let valid = true;
+        for (let i = 0; i < n && valid; i++)
+          for (let j = i + 1; j < n; j++)
+            if (Math.abs(cols[i] - cols[j]) <= 1 && Math.abs(i - j) <= 1) { valid = false; break; }
+        if (valid) return cols;
+      }
+      return null;
+    }
+
+    function generateRegions(n, solution) {
+      const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+      const grid = Array.from({ length: n }, () => Array(n).fill(-1));
+      const sizes = Array(n).fill(1);
+      for (let r = 0; r < n; r++) grid[r][solution[r]] = r;
+      let remaining = n * n - n;
+      const targets = Array(n).fill(0).map(() => {
+        const x = Math.random();
+        if (x < 0.25) return 1 + Math.floor(Math.random() * 4);
+        if (x < 0.55) return 4 + Math.floor(Math.random() * 4);
+        if (x < 0.85) return 7 + Math.floor(Math.random() * 5);
+        return 11 + Math.floor(Math.random() * 6);
+      });
+      while (remaining > 0) {
+        const candidates = [];
+        for (let r = 0; r < n; r++) {
+          const frontier = [];
+          for (let row = 0; row < n; row++)
+            for (let col = 0; col < n; col++) {
+              if (grid[row][col] !== r) continue;
+              for (const [dr, dc] of dirs) {
+                const nr = row + dr, nc = col + dc;
+                if (nr >= 0 && nr < n && nc >= 0 && nc < n && grid[nr][nc] === -1)
+                  frontier.push([nr, nc]);
+              }
+            }
+          if (frontier.length > 0) candidates.push({ r, frontier });
+        }
+        if (!candidates.length) break;
+        const hungry = candidates.filter(c => sizes[c.r] < targets[c.r]);
+        const pool = hungry.length > 0 ? hungry : candidates;
+        let pick;
+        if (hungry.length > 0) {
+          const weights = pool.map(c => Math.max(1, targets[c.r] - sizes[c.r]));
+          const total = weights.reduce((a, b) => a + b, 0);
+          let rnd = Math.random() * total;
+          pick = pool[0];
+          for (let i = 0; i < pool.length; i++) { rnd -= weights[i]; if (rnd <= 0) { pick = pool[i]; break; } }
+        } else {
+          pick = pool[Math.floor(Math.random() * pool.length)];
+        }
+        const [pr, pc] = pick.frontier[Math.floor(Math.random() * pick.frontier.length)];
+        grid[pr][pc] = pick.r; sizes[pick.r]++; remaining--;
+      }
+      if (remaining > 0) {
+        let pass = 0;
+        while (remaining > 0 && pass < n * n) {
+          pass++;
+          for (let row = 0; row < n && remaining > 0; row++)
+            for (let col = 0; col < n && remaining > 0; col++) {
+              if (grid[row][col] !== -1) continue;
+              for (const [dr, dc] of dirs) {
+                const nr = row + dr, nc = col + dc;
+                if (nr >= 0 && nr < n && nc >= 0 && nc < n && grid[nr][nc] !== -1) {
+                  grid[row][col] = grid[nr][nc]; sizes[grid[nr][nc]]++; remaining--; break;
+                }
+              }
+            }
+        }
+      }
+      return grid;
+    }
+
+    function solvePuzzle(n, regions, limit, fixed = {}) {
+      const sols = [];
+      const colUsed = Array(n).fill(false);
+      const regUsed = Array(n).fill(false);
+      const placed = Array(n).fill(-1);
+      function rec(row) {
+        if (sols.length >= limit) return;
+        if (row === n) { sols.push([...placed]); return; }
+        const fixedCol = fixed[row];
+        for (let col = 0; col < n; col++) {
+          if (fixedCol !== undefined && col !== fixedCol) continue;
+          if (colUsed[col]) continue;
+          const reg = regions[row][col];
+          if (regUsed[reg]) continue;
+          if (row > 0 && placed[row - 1] !== -1 && Math.abs(placed[row - 1] - col) <= 1) continue;
+          colUsed[col] = true; regUsed[reg] = true; placed[row] = col;
+          rec(row + 1);
+          colUsed[col] = false; regUsed[reg] = false; placed[row] = -1;
+          if (sols.length >= limit) return;
+        }
+      }
+      rec(0);
+      return sols;
+    }
+
+    function isConnected(n, grid, r) {
+      const cells = [];
+      for (let row = 0; row < n; row++)
+        for (let col = 0; col < n; col++)
+          if (grid[row][col] === r) cells.push([row, col]);
+      if (!cells.length) return false;
+      const seen = new Set([cells[0][0] * n + cells[0][1]]);
+      const stack = [cells[0]];
+      const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+      while (stack.length) {
+        const [cr, cc] = stack.pop();
+        for (const [dr, dc] of dirs) {
+          const nr = cr + dr, nc = cc + dc;
+          if (nr >= 0 && nr < n && nc >= 0 && nc < n && grid[nr][nc] === r && !seen.has(nr * n + nc)) {
+            seen.add(nr * n + nc); stack.push([nr, nc]);
+          }
+        }
+      }
+      return seen.size === cells.length;
+    }
+
+    function refineToUnique(n, grid, target, deadline) {
+      const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+      let stale = 0;
+      const tryReassign = (row, col) => {
+        const curReg = grid[row][col];
+        const neigh = shuffle(
+          dirs.map(([dr, dc]) => [row + dr, col + dc])
+            .filter(([nr, nc]) => nr >= 0 && nr < n && nc >= 0 && nc < n && grid[nr][nc] !== curReg)
+        );
+        for (const [nr, nc] of neigh) {
+          const newReg = grid[nr][nc];
+          grid[row][col] = newReg;
+          let ok = true;
+          for (let tr = 0; tr < n; tr++) if (grid[tr][target[tr]] !== tr) { ok = false; break; }
+          if (ok && isConnected(n, grid, curReg) && isConnected(n, grid, newReg)) return true;
+          grid[row][col] = curReg;
+        }
+        return false;
+      };
+      while (Date.now() < deadline) {
+        const sols = solvePuzzle(n, grid, 2);
+        if (sols.length <= 1) return true;
+        const alt = sols.find(s => s.some((c, r) => c !== target[r]));
+        if (!alt) return true;
+        const diffRows = shuffle([...Array(n).keys()].filter(r => alt[r] !== target[r]));
+        let moved = false;
+        for (const row of diffRows) {
+          if (tryReassign(row, alt[row])) { moved = true; break; }
+        }
+        if (!moved) {
+          stale++;
+          for (let t = 0; t < 25; t++) {
+            const row = Math.floor(Math.random() * n);
+            const col = Math.floor(Math.random() * n);
+            if (target[row] === col) continue;
+            if (tryReassign(row, col)) break;
+          }
+          if (stale > n * 4) break;
+        } else { stale = 0; }
+      }
+      return solvePuzzle(n, grid, 2).length === 1;
+    }
+
+    function generatePuzzle(n) {
+      const overallDeadline = Date.now() + 8000;
+      const perCandidate = n <= 8 ? 300 : 500;
+      let best = null;
+      while (Date.now() < overallDeadline) {
+        const solution = generateQueenSolution(n);
+        if (!solution) continue;
+        const regions = generateRegions(n, solution);
+        const unique = refineToUnique(n, regions, solution, Date.now() + perCandidate);
+        const solCount = solvePuzzle(n, regions, 2).length;
+        if (unique && solCount === 1) return { n, solution, regions };
+        if (!best || solCount < best.solCount) best = { n, solution, regions, solCount };
+      }
+      return best ? { n: best.n, solution: best.solution, regions: best.regions } : null;
+    }
+
+    function validatePlacement(queens, n, regions) {
+      const errors = new Set();
+      if (queens.length === 0) return { errors, solved: false };
+      const rowMap = {}, colMap = {}, regionMap = {};
+      for (const q of queens) {
+        const key = `${q.row},${q.col}`;
+        if (rowMap[q.row] !== undefined) { errors.add(key); errors.add(`${q.row},${rowMap[q.row]}`); }
+        else rowMap[q.row] = q.col;
+        if (colMap[q.col] !== undefined) { errors.add(key); errors.add(`${colMap[q.col]},${q.col}`); }
+        else colMap[q.col] = q.row;
+        const reg = regions[q.row][q.col];
+        if (regionMap[reg] !== undefined) { errors.add(key); errors.add(regionMap[reg]); }
+        else regionMap[reg] = key;
+      }
+      for (let i = 0; i < queens.length; i++)
+        for (let j = i + 1; j < queens.length; j++) {
+          const dr = Math.abs(queens[i].row - queens[j].row);
+          const dc = Math.abs(queens[i].col - queens[j].col);
+          if (dr <= 1 && dc <= 1 && !(dr === 0 && dc === 0)) {
+            errors.add(`${queens[i].row},${queens[i].col}`);
+            errors.add(`${queens[j].row},${queens[j].col}`);
+          }
+        }
+      return { errors, solved: errors.size === 0 && queens.length === n };
+    }
+
+    function QueensGame() {
+      const [size, setSize] = useState(8);
+      const [puzzle, setPuzzle] = useState(null);
+      const [cells, setCells] = useState({});
+      const [errors, setErrors] = useState(new Set());
+      const [solved, setSolved] = useState(false);
+      const [showSolution, setShowSolution] = useState(false);
+      const [timer, setTimer] = useState(0);
+      const [running, setRunning] = useState(false);
+      const [dragging, setDragging] = useState(false);
+      const [hint, setHint] = useState(null);
+
+      const dragStartRef = useRef(null);
+      const dragVisitedRef = useRef(null);
+      const draggingRef = useRef(false);
+      const cellsRef = useRef(cells);
+      useEffect(() => { cellsRef.current = cells; }, [cells]);
+
+      const [vw, setVw] = useState(window.innerWidth);
+      useEffect(() => {
+        const onResize = () => setVw(window.innerWidth);
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+      }, []);
+
+      const newPuzzle = useCallback((n = size) => {
+        setShowSolution(false); setSolved(false); setCells({});
+        setErrors(new Set()); setHint(null); setTimer(0);
+        setPuzzle(null); setRunning(false);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const p = generatePuzzle(n);
+            setPuzzle(p); setRunning(true);
+          });
+        });
+      }, [size]);
+
+      useEffect(() => { newPuzzle(size); }, []);
+
+      useEffect(() => {
+        if (!running || solved) return;
+        const id = setInterval(() => setTimer(t => t + 1), 1000);
+        return () => clearInterval(id);
+      }, [running, solved]);
+
+      const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
+      const recompute = (next) => {
+        const queens = Object.entries(next).filter(([, v]) => v === "queen")
+          .map(([k]) => { const [r, c] = k.split(",").map(Number); return { row: r, col: c }; });
+        const { errors: errs, solved: s } = validatePlacement(queens, puzzle.n, puzzle.regions);
+        setErrors(errs);
+        if (s) { setSolved(true); setRunning(false); }
+      };
+
+      const cycleCell = (row, col) => {
+        if (solved || showSolution) return;
+        if (hint) setHint(null);
+        const key = `${row},${col}`;
+        const next = { ...cells };
+        const cur = next[key];
+        if (!cur) next[key] = "x";
+        else if (cur === "x") next[key] = "queen";
+        else delete next[key];
+        setCells(next); recompute(next);
+      };
+
+      const paintX = (row, col) => {
+        if (solved || showSolution) return;
+        const key = `${row},${col}`;
+        const visited = dragVisitedRef.current || new Set();
+        if (visited.has(key)) return;
+        visited.add(key); dragVisitedRef.current = visited;
+        const current = cellsRef.current;
+        if (!current[key]) {
+          const next = { ...current, [key]: "x" };
+          cellsRef.current = next; setCells(next);
+        }
+      };
+
+      const giveHint = () => {
+        if (solved || showSolution || !puzzle) return;
+        const fixed = {}; let conflict = false; const seenRow = {};
+        for (const [k, v] of Object.entries(cells)) {
+          if (v !== "queen") continue;
+          const [r, c] = k.split(",").map(Number);
+          if (seenRow[r] !== undefined) conflict = true;
+          seenRow[r] = c; fixed[r] = c;
+        }
+        let sols = conflict ? [] : solvePuzzle(puzzle.n, puzzle.regions, 80, fixed);
+        if (sols.length === 0) {
+          const allSols = solvePuzzle(puzzle.n, puzzle.regions, 80);
+          let wrong = null;
+          for (const [k, v] of Object.entries(cells)) {
+            if (v !== "queen") continue;
+            const [r, c] = k.split(",").map(Number);
+            if (!allSols.some(s => s[r] === c)) { wrong = k; break; }
+          }
+          setHint({ type: "wrong", cell: wrong }); return;
+        }
+        for (let r = 0; r < puzzle.n; r++) {
+          const col = sols[0][r];
+          if (sols.every(s => s[r] === col)) {
+            const key = `${r},${col}`;
+            if (cells[key] !== "queen") { setHint({ type: "place", cell: key }); return; }
+          }
+        }
+        for (let r = 0; r < puzzle.n; r++) {
+          const key = `${r},${sols[0][r]}`;
+          if (cells[key] !== "queen") { setHint({ type: "place", cell: key }); return; }
+        }
+      };
+
+      if (!puzzle) return (
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+          minHeight:"100vh", background:"linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)",
+          fontFamily:"'Segoe UI',system-ui,sans-serif", color:"#8ab4d4" }}>
+          <div style={{ fontSize:40, marginBottom:12, opacity:0.8 }}>♛</div>
+          <div style={{ fontSize:15, letterSpacing:1 }}>Generiere Puzzle…</div>
+        </div>
+      );
+
+      const { n, regions, solution } = puzzle;
+      const maxBoard = Math.min(vw - 32, 520);
+      const cellSize = Math.max(20, Math.floor((maxBoard - 6) / n));
+
+      const btn = (label, onClick, active, color) => ({
+        padding: "7px 16px", borderRadius: 20, border: `2px solid ${color || (active ? "#64b4ff" : "#334")}`,
+        background: active ? "rgba(100,180,255,0.15)" : "rgba(255,255,255,0.05)",
+        color: active ? "#64b4ff" : (color ? color : "#889"),
+        fontWeight: 700, fontSize: 14, cursor: "pointer", transition: "all .2s",
+      });
+
+      return (
+        <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)",
+          display:"flex", flexDirection:"column", alignItems:"center",
+          paddingTop:20, paddingBottom:40, paddingLeft:16, paddingRight:16,
+          boxSizing:"border-box", fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
+
+          <div style={{ textAlign:"center", marginBottom:20 }}>
+            <h1 style={{ margin:0, fontSize:32, fontWeight:800, letterSpacing:3, color:"#fff",
+              textShadow:"0 0 30px rgba(100,180,255,0.4)" }}>♛ QUEENS</h1>
+            <p style={{ margin:"6px 0 0", color:"#8ab4d4", fontSize:13, letterSpacing:1 }}>
+              Je eine Krone pro Zeile · Spalte · Farb-Region · Keine Berührung
+            </p>
+          </div>
+
+          <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", justifyContent:"center" }}>
+            {[6, 8, 10].map(s => (
+              <button key={s} onClick={() => { setSize(s); newPuzzle(s); }} style={btn(`${s}×${s}`, null, size === s)}>
+                {s}×{s}
+              </button>
+            ))}
+            <button onClick={() => newPuzzle(size)}
+              style={{ ...btn("↻ Neu", null, false, "#7060c0"), background:"rgba(112,96,192,0.2)", color:"#b0a0f0" }}>
+              ↻ Neu
+            </button>
+            <button onClick={giveHint} disabled={solved || showSolution}
+              style={{ ...btn("💡", null, false, "#d0a040"), background: solved||showSolution ? "rgba(120,120,120,0.1)":"rgba(208,160,64,0.18)", color: solved||showSolution ? "#667":"#e8c060" }}>
+              💡 Tipp
+            </button>
+            <button onClick={() => setShowSolution(s => !s)}
+              style={{ ...btn("", null, false, showSolution?"#c04040":"#606060"), background: showSolution?"rgba(180,80,80,0.2)":"rgba(255,255,255,0.05)", color: showSolution?"#f09090":"#888" }}>
+              {showSolution ? "Lösung verbergen" : "Lösung zeigen"}
+            </button>
+          </div>
+
+          <div style={{ display:"flex", gap:24, alignItems:"center", marginBottom:14, color:"#aaa", fontSize:15 }}>
+            <span style={{ fontVariantNumeric:"tabular-nums", color: solved?"#80e080":"#64b4ff", fontWeight:700, fontSize:18 }}>
+              ⏱ {formatTime(timer)}
+            </span>
+            <span style={{ color:"#667" }}>
+              {Object.values(cells).filter(v => v === "queen").length}/{n} Kronen
+            </span>
+          </div>
+
+          {solved && (
+            <div style={{ marginBottom:14, padding:"12px 32px", borderRadius:12,
+              background:"rgba(80,200,80,0.15)", border:"2px solid #60c060",
+              color:"#80e080", fontWeight:800, fontSize:18, letterSpacing:2, textAlign:"center" }}>
+              🎉 Gelöst! {formatTime(timer)}
+            </div>
+          )}
+
+          <div style={{ display:"grid",
+            gridTemplateColumns:`repeat(${n}, ${cellSize}px)`,
+            gridTemplateRows:`repeat(${n}, ${cellSize}px)`,
+            gap:0, borderRadius:10, overflow:"hidden",
+            boxShadow:"0 8px 40px rgba(0,0,0,0.6)", border:"3px solid #334", touchAction:"none" }}
+            onPointerDown={(e) => {
+              if (solved || showSolution) return;
+              const cell = e.target.closest("[data-cell]"); if (!cell) return;
+              const [row, col] = cell.dataset.cell.split(",").map(Number);
+              draggingRef.current = true; setDragging(true);
+              dragVisitedRef.current = new Set([`${row},${col}`]);
+              dragStartRef.current = { row, col, moved: false, x: e.clientX, y: e.clientY };
+              try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+            }}
+            onPointerMove={(e) => {
+              if (!draggingRef.current || solved || showSolution) return;
+              const start = dragStartRef.current; if (!start) return;
+              const el = document.elementFromPoint(e.clientX, e.clientY);
+              const cell = el && el.closest && el.closest("[data-cell]"); if (!cell) return;
+              const [row, col] = cell.dataset.cell.split(",").map(Number);
+              const movedFar = Math.abs(e.clientX - start.x) > 6 || Math.abs(e.clientY - start.y) > 6;
+              if (row !== start.row || col !== start.col || movedFar) {
+                if (!start.moved) { start.moved = true; paintX(start.row, start.col); }
+                paintX(row, col);
+              }
+            }}
+            onPointerUp={() => {
+              const start = dragStartRef.current;
+              if (start && !start.moved) cycleCell(start.row, start.col);
+              else if (start && start.moved) recompute(cellsRef.current);
+              draggingRef.current = false; setDragging(false);
+              dragVisitedRef.current = null; dragStartRef.current = null;
+            }}
+            onPointerCancel={() => {
+              const start = dragStartRef.current;
+              if (start && start.moved) recompute(cellsRef.current);
+              draggingRef.current = false; setDragging(false);
+              dragVisitedRef.current = null; dragStartRef.current = null;
+            }}
+          >
+            {Array.from({ length: n }, (_, row) =>
+              Array.from({ length: n }, (_, col) => {
+                const key = `${row},${col}`;
+                const regionIdx = regions[row][col];
+                const palette = REGION_PALETTES[regionIdx % REGION_PALETTES.length];
+                const state = cells[key];
+                const isSolution = showSolution && solution[row] === col;
+                const showQueen = state === "queen" || isSolution;
+                const isError = errors.has(key);
+                const isHintPlace = hint && hint.type === "place" && hint.cell === key;
+                const isHintWrong = hint && hint.type === "wrong" && hint.cell === key;
+
+                const bTop = row === 0 || regions[row-1][col] !== regionIdx ? `2.5px solid ${palette.border}` : `1px solid ${palette.border}44`;
+                const bLeft = col === 0 || regions[row][col-1] !== regionIdx ? `2.5px solid ${palette.border}` : `1px solid ${palette.border}44`;
+                const bBot = row === n-1 || regions[row+1][col] !== regionIdx ? `2.5px solid ${palette.border}` : `1px solid ${palette.border}44`;
+                const bRight = col === n-1 || regions[row][col+1] !== regionIdx ? `2.5px solid ${palette.border}` : `1px solid ${palette.border}44`;
+
+                return (
+                  <div key={key} data-cell={key} style={{
+                    width: cellSize, height: cellSize,
+                    background: isError ? "rgba(220,60,60,0.35)" : isHintPlace ? "rgba(232,200,96,0.55)" : isSolution ? `${palette.bg}cc` : palette.bg,
+                    borderTop: bTop, borderLeft: bLeft, borderBottom: bBot, borderRight: bRight,
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    cursor: solved || showSolution ? "default" : "pointer",
+                    transition:"background .15s", position:"relative", boxSizing:"border-box", userSelect:"none",
+                    boxShadow: isHintPlace ? "inset 0 0 0 3px #e8c060, 0 0 14px rgba(232,200,96,0.7)"
+                      : isHintWrong ? "inset 0 0 0 3px #ff5050, 0 0 14px rgba(255,80,80,0.7)" : "none",
+                    zIndex: isHintPlace || isHintWrong ? 2 : 1,
+                  }}>
+                    {showQueen && (
+                      <span style={{ fontSize: cellSize * 0.52, lineHeight:1, pointerEvents:"none",
+                        color: isError ? "#ff4444" : isSolution ? palette.queen+"99" : palette.queen,
+                        filter: isError ? "drop-shadow(0 0 4px #ff2222)" : "none" }}>♛</span>
+                    )}
+                    {state === "x" && !isSolution && (
+                      <span style={{ fontSize: cellSize * 0.4, lineHeight:1, color: palette.border,
+                        opacity:0.65, fontWeight:700, pointerEvents:"none" }}>✕</span>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div style={{ marginTop:18, color:"#556", fontSize:12, textAlign:"center", maxWidth:maxBoard, lineHeight:1.7 }}>
+            <strong style={{ color:"#778" }}>Regeln:</strong> Pro Zeile, Spalte und Farb-Region genau eine Krone.<br/>
+            Zwei Kronen dürfen sich nie berühren — auch nicht diagonal.<br/>
+            <span style={{ color:"#aab" }}>Tippen:</span> leer → ✕ → ♛ → leer &nbsp;·&nbsp;
+            <span style={{ color:"#aab" }}>Wischen:</span> ✕ über mehrere Felder &nbsp;·&nbsp;
+            <span style={{ color:"#e8c060" }}>💡 Tipp</span> zeigt einen sicheren Zug
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<QueensGame />);
+  </script>
+</body>
+</html>
