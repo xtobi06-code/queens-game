@@ -232,30 +232,6 @@ function QueensGame(){
   const [vw, setVw] = useState(window.innerWidth);
   useEffect(()=>{const f=()=>setVw(window.innerWidth);window.addEventListener('resize',f);return()=>window.removeEventListener('resize',f);},[]);
 
-  // Parse URL params on mount
-  useEffect(()=>{
-    const p=new URLSearchParams(window.location.search);
-    const enc=p.get('c');
-    const from=p.get('from')||'';
-    const sk=p.get('sk')||'sm';
-    const dk=p.get('dk')||'easy';
-    const bt=parseInt(p.get('bt')||'0',10);
-    if(enc){
-      const sObj=SIZES.find(s=>s.key===sk)||SIZES[0];
-      const n=sObj.n;
-      try{
-        const regions=decodeGrid(n,enc);
-        const solution=solvePuzzle(n,regions,1)[0];
-        setPuzzle({n,regions,solution,score:0});
-        setChallengeMode(true);
-        setChallengeReady(false);
-        setChallengeMode(true);
-        setChallengeMeta({n,sizeKey:sk,diffKey:dk,from,bestTime:bt});
-        setSizeKey(sk);setDiffKey(dk);
-      }catch(e){console.error('Bad challenge link',e);}
-    }
-  },[]);
-
   // Timer
   useEffect(()=>{
     if(!running||solved)return;
@@ -275,7 +251,31 @@ function QueensGame(){
     }));
   },[sizeKey,diffKey]);
 
-  useEffect(()=>{if(!challengeMode)newPuzzle('sm','easy');},[]);
+  // Parse URL params on mount — handles both challenge links and normal start
+  useEffect(()=>{
+    const p=new URLSearchParams(window.location.search);
+    const enc=p.get('c');
+    const from=p.get('from')||'';
+    const sk=p.get('sk')||'sm';
+    const dk=p.get('dk')||'easy';
+    const bt=parseInt(p.get('bt')||'0',10);
+    if(enc){
+      const sObj=SIZES.find(s=>s.key===sk)||SIZES[0];
+      const n=sObj.n;
+      try{
+        const regions=decodeGrid(n,enc);
+        const sols=solvePuzzle(n,regions,1);
+        const solution=sols.length?sols[0]:null;
+        setPuzzle({n,regions,solution,score:0});
+        setChallengeMode(true);
+        setChallengeReady(false);
+        setChallengeMeta({n,sizeKey:sk,diffKey:dk,from,bestTime:bt});
+        setSizeKey(sk);setDiffKey(dk);
+        return;
+      }catch(e){console.error('Bad challenge link',e);}
+    }
+    newPuzzle('sm','easy');
+  },[]);
 
   const recompute=(next,puz)=>{
     const p=puz||puzzle;if(!p)return;
