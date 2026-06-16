@@ -126,7 +126,7 @@ function diffScore(n,regions){
 // Generate one valid unique puzzle candidate
 function genCandidate(n){
   const budget=n<=7?300:n<=9?500:900;
-  const deadline=Date.now()+12000;
+  const deadline=Date.now()+8000;
   while(Date.now()<deadline){
     const sol=genSol(n);if(!sol)continue;
     const g=grow(n,sol);
@@ -139,7 +139,7 @@ function genCandidate(n){
 function generatePuzzle(n, diffKey){
   const count=n<=7?4:n<=9?4:3;
   const candidates=[];
-  const overall=Date.now()+(n>=11?16000:10000);
+  const overall=Date.now()+(n>=11?10000:7000);
   while(candidates.length<count&&Date.now()<overall){
     const c=genCandidate(n);if(c)candidates.push(c);
   }
@@ -222,7 +222,10 @@ function QueensGame(){
   // Challenge mode (loaded from URL)
   const [challengeMode, setChallengeMode] = useState(false);
   const [challengeReady, setChallengeReady] = useState(false); // waiting for START
-  const [challengeMeta, setChallengeMeta]   = useState(null);  // {n, sizeKey, diffKey, from, time}
+  const [challengeMeta, setChallengeMeta]   = useState(null);
+  const [shareModal, setShareModal] = useState(null);
+  const [giveUpConfirm, setGiveUpConfirm] = useState(false);
+  const [gaveUp, setGaveUp] = useState(false);
 
   const draggingRef    = useRef(false);
   const dragStartRef   = useRef(null);
@@ -247,10 +250,10 @@ function QueensGame(){
     setShowSol(false);setSolved(false);setCells({});setErrors(new Set());setHint(null);setTimer(0);
     historyRef.current=[];
     setPuzzle(null);setRunning(false);
-    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    setTimeout(()=>{
       const p=generatePuzzle(sObj.n,dk);
       setPuzzle(p);setRunning(true);
-    }));
+    },50);
   },[sizeKey,diffKey]);
 
   // Parse URL params on mount — handles both challenge links and normal start
@@ -341,9 +344,6 @@ function QueensGame(){
     for(let r=0;r<puzzle.n;r++){const col=sols[0][r];if(sols.every(s=>s[r]===col)){const key=`${r},${col}`;if(cells[key]!=='queen'){setHint({type:'place',cell:key});return;}}}
     for(let r=0;r<puzzle.n;r++){const key=`${r},${sols[0][r]}`;if(cells[key]!=='queen'){setHint({type:'place',cell:key});return;}}
   };
-
-  const [shareModal, setShareModal] = useState(null);
-  const [history, setHistory] = useState([]); // stack of previous cells states // { url, bestTime }
 
   const shareChallenge=()=>{
     if(!puzzle)return;
@@ -467,9 +467,6 @@ function QueensGame(){
       </div>
     );
   };
-
-  const [giveUpConfirm, setGiveUpConfirm] = useState(false);
-  const [gaveUp, setGaveUp] = useState(false);
 
   const sendRevanche = () => {
     if(!puzzle||!challengeMeta)return;
