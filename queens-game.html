@@ -229,7 +229,6 @@ function QueensGame(){
   const [soundOn, setSoundOn] = useState(loadSound);
   const [hapticOn, setHapticOn] = useState(loadHaptic);
   const [confetti, setConfetti] = useState([]);
-  const [loadStep, setLoadStep] = useState(0);
   const [statsTab, setStatsTab]   = useState('sm');
   const [stats, setStats]     = useState(loadStats);
   const [playerName, setPlayerName] = useState(loadName);
@@ -262,13 +261,7 @@ function QueensGame(){
     return()=>clearInterval(id);
   },[running,solved]);
 
-  // Loading animation: step 0 = all empty, 1-8 fill clockwise, then back to 0
-  useEffect(()=>{
-    if(puzzle){setLoadStep(0);return;}
-    setLoadStep(0);
-    const id=setInterval(()=>setLoadStep(s=>(s+1)%9),280);
-    return()=>clearInterval(id);
-  },[puzzle]);
+  // (Loading animation now uses a pure CSS crown spin — no JS interval needed)
 
   // Sound functions — reuse a single AudioContext to avoid the "burst of sounds" bug
   const playSound=(type)=>{
@@ -542,20 +535,19 @@ function QueensGame(){
             const key=`${row},${col}`;
             const isCenter=row===1&&col===1;
             const outerIdx=positions.findIndex(([r,c])=>r===row&&c===col);
-            const filled=outerIdx!==-1&&outerIdx<loadStep;
             return(
               <div key={key} style={{width:52,height:52,borderRadius:8,
-                background:isCenter?'rgba(100,180,255,0.15)':filled?outerColors[outerIdx]:'rgba(255,255,255,0.04)',
-                border:`2px solid ${isCenter?'#64b4ff44':filled?outerBorders[outerIdx]:'#ffffff11'}`,
-                display:'flex',alignItems:'center',justifyContent:'center',
-                transition:'background 0.2s, border-color 0.2s'}}>
-                {isCenter&&<span style={{fontSize:28,color:'#fff'}}>♛</span>}
+                background:isCenter?'rgba(100,180,255,0.15)':outerColors[outerIdx],
+                border:`2px solid ${isCenter?'#64b4ff44':outerBorders[outerIdx]}`,
+                display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'}}>
+                {isCenter&&<span style={{fontSize:28,color:'#fff',lineHeight:1}}>♛</span>}
               </div>
             );
           }))}
         </div>
         <div style={{fontSize:14,letterSpacing:1,color:'#8ab4d4'}}>Generiere Feld…</div>
         {sizeKey==='lg'&&<div style={{fontSize:12,color:'#445',marginTop:6}}>Groß kann einige Sekunden dauern</div>}
+
       </div>
     );
   }
