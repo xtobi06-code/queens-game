@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>♛ Queens</title>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="apple-touch-icon" href="favicon.svg">
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="apple-touch-icon" href="./favicon.svg">
   <style>* { margin:0; padding:0; box-sizing:border-box; } body { background:#1a1a2e; overscroll-behavior:none; }</style>
 </head>
 <body>
@@ -471,20 +471,27 @@ function QueensGame(){
   const sendRevanche = () => {
     if(!puzzle||!challengeMeta)return;
     const won = !gaveUp && challengeMeta.bestTime > 0 && timer < challengeMeta.bestTime;
-    const text = gaveUp
-      ? `⚔️ Queens Challenge: Ich hab aufgegeben!${challengeMeta.bestTime>0?' Deine Vorgabe war '+fmtTime(challengeMeta.bestTime)+'.':''} Nächstes Mal schaff ich's!`
+    const sLabel=SIZES.find(s=>s.n===puzzle.n)?.label||'';
+    const dLabel=DIFFS.find(d=>d.key===diffKey)?.label||'';
+    const circPal=['🔵','🟢','🟠','🟣','🔴','🟡','🔵','🟤','🟣','🟢','🔴'];
+    // build emoji grid using actual puzzle regions + solution
+    let grid='';
+    for(let r=0;r<puzzle.n;r++){
+      for(let c=0;c<puzzle.n;c++){
+        grid += puzzle.solution[r]===c ? '👑' : circPal[puzzle.regions[r][c]%circPal.length];
+      }
+      grid+='\n';
+    }
+    const header = gaveUp
+      ? `⚔️ Queens (${sLabel}, ${dLabel}) — aufgegeben 🏳️`
       : won
-        ? `⚔️ Queens Challenge: Ich hab dich geschlagen! Meine Zeit: ${fmtTime(timer)} — deine: ${fmtTime(challengeMeta.bestTime)}. Kannst du dich revanchieren?`
-        : challengeMeta.bestTime > 0
-          ? `⚔️ Queens Challenge: Du warst schneller! Deine Zeit: ${fmtTime(challengeMeta.bestTime)}, meine: ${fmtTime(timer)}. Ich fordere dich erneut heraus!`
-          : `⚔️ Queens Challenge: Ich hab es geschafft! Zeit: ${fmtTime(timer)}. Jetzt bist du dran!`;
-    const sk=SIZES.find(s=>s.n===puzzle.n)?.key||sizeKey;
-    const enc=encodeGrid(puzzle.n,puzzle.regions);
-    const from=encodeURIComponent(playerName||'Jemand');
-    const bt=gaveUp?0:timer;
-    const url=`${location.origin}${location.pathname}?c=${enc}&sk=${sk}&dk=${diffKey}&from=${from}&bt=${bt}`;
-    if(navigator.share){navigator.share({title:'Queens Challenge',text,url}).catch(()=>{});}
-    else{navigator.clipboard.writeText(`${text}\n${url}`).then(()=>alert('Kopiert!')).catch(()=>{});}
+        ? `⚔️ Queens (${sLabel}, ${dLabel}) — gelöst in ${fmtTime(timer)} 🏆 (geschlagen: ${fmtTime(challengeMeta.bestTime)})`
+        : challengeMeta.bestTime>0
+          ? `⚔️ Queens (${sLabel}, ${dLabel}) — gelöst in ${fmtTime(timer)} (Vorgabe: ${fmtTime(challengeMeta.bestTime)})`
+          : `⚔️ Queens (${sLabel}, ${dLabel}) — gelöst in ${fmtTime(timer)}`;
+    const text = `${header}\n\n${grid}`;
+    if(navigator.share){navigator.share({title:'Queens',text}).catch(()=>{});}
+    else{navigator.clipboard.writeText(text).then(()=>alert('Kopiert!')).catch(()=>{});}
   };
   const nameSaved = (settingsName || playerName).trim() === playerName;
   const settingsModalEl = showSettings ? (
@@ -609,14 +616,14 @@ function QueensGame(){
 
       {/* Challenge meta banner */}
       {challengeMode&&challengeMeta&&(
-        <div style={{marginBottom:12,padding:'8px 20px',borderRadius:12,background:'rgba(232,192,96,0.08)',border:'1px solid #e8c06044',textAlign:'center'}}>
-          <div style={{color:'#886644',fontSize:12}}>{SIZES.find(s=>s.key===challengeMeta.sizeKey)?.label} · {DIFFS.find(d=>d.key===challengeMeta.diffKey)?.label}</div>
-          {challengeMeta.bestTime>0&&<div style={{color:'#e8c060',fontSize:14,fontWeight:700}}>⏱ Zu schlagen: {fmtTime(challengeMeta.bestTime)}</div>}
+        <div style={{marginBottom:4,padding:'8px 20px',borderRadius:12,background:'rgba(232,192,96,0.18)',border:'1px solid #e8c06099',textAlign:'center'}}>
+          <div style={{color:'#c0a060',fontSize:12}}>{SIZES.find(s=>s.key===challengeMeta.sizeKey)?.label} · {DIFFS.find(d=>d.key===challengeMeta.diffKey)?.label}</div>
+          {challengeMeta.bestTime>0&&<div style={{color:'#ffd870',fontSize:14,fontWeight:700}}>⏱ Zu schlagen: {fmtTime(challengeMeta.bestTime)}</div>}
         </div>
       )}
 
       {/* Grid wrapper */}
-      <div style={{position:'relative',width:Math.min(vw-32,520)+'px',maxWidth:'100%',marginTop:16}}>
+      <div style={{position:'relative',width:Math.min(vw-32,520)+'px',maxWidth:'100%',marginTop:challengeMode?6:16}}>
 
         {/* Timer row — centered in challenge, left+right in normal */}
         {challengeMode ? (
@@ -673,7 +680,7 @@ function QueensGame(){
           // and we pop this one off in onPointerMove when moved=false→true
           historyRef.current=[...historyRef.current,{...cellsRef.current}];
           draggingRef.current=true;
-          dragVisitedRef.current=new Set([`${row},${col}`]);
+          dragVisitedRef.current=new Set();
           dragStartRef.current={row,col,moved:false,x:e.clientX,y:e.clientY,snapLen:historyRef.current.length};
           try{e.currentTarget.setPointerCapture(e.pointerId);}catch{}
         }}
@@ -744,12 +751,12 @@ function QueensGame(){
             {(()=>{const hasAnything=Object.keys(cells).length>0;return(
               <button onClick={()=>{historyRef.current=[];setCells({});setErrors(new Set());setHint(null);setSolved(false);setRunning(true);setGiveUpConfirm(false);setGaveUp(false);}}
                 disabled={!hasAnything}
-                style={{flex:1,height:40,borderRadius:16,fontWeight:700,fontSize:14,cursor:hasAnything?'pointer':'default',border:'2px solid #80404088',background:'rgba(128,64,64,0.12)',color:'#c08080',opacity:hasAnything?1:0.3}}>
+                style={{flex:1,height:40,borderRadius:16,fontWeight:700,fontSize:14,cursor:hasAnything?'pointer':'default',border:'2px solid #c06060',background:'rgba(160,70,70,0.35)',color:'#ffc0c0',opacity:hasAnything?1:0.4}}>
                 Zurücksetzen
               </button>
             );})()}
             <button onClick={undo} disabled={!historyRef.current.length}
-              style={{flex:1,height:40,borderRadius:16,fontWeight:700,fontSize:18,cursor:historyRef.current.length?'pointer':'default',border:'2px solid #66558888',background:'rgba(102,85,136,0.12)',color:'#a090c0',opacity:historyRef.current.length?1:0.3}}>
+              style={{flex:1,height:40,borderRadius:16,fontWeight:700,fontSize:18,cursor:historyRef.current.length?'pointer':'default',border:'2px solid #8878b0',background:'rgba(120,100,160,0.35)',color:'#d0c0f0',opacity:historyRef.current.length?1:0.4}}>
               ↩
             </button>
           </div>
@@ -758,9 +765,9 @@ function QueensGame(){
             <button
               onClick={()=>{if(giveUpConfirm){setShowSol(true);setRunning(false);setGaveUp(true);setSolved(true);setGiveUpConfirm(false);}else{setGiveUpConfirm(true);setTimeout(()=>setGiveUpConfirm(false),3000);}}}
               style={{width:'100%',height:40,borderRadius:16,fontWeight:700,fontSize:14,cursor:'pointer',
-                border:`2px solid ${giveUpConfirm?'#ff404088':'#80202088'}`,
-                background:giveUpConfirm?'rgba(255,64,64,0.2)':'rgba(128,32,32,0.1)',
-                color:giveUpConfirm?'#ff8080':'#804040',transition:'all .2s'}}>
+                border:`2px solid ${giveUpConfirm?'#ff6060':'#c04040'}`,
+                background:giveUpConfirm?'rgba(255,80,80,0.4)':'rgba(180,50,50,0.3)',
+                color:giveUpConfirm?'#fff':'#ffb0b0',transition:'all .2s'}}>
               {giveUpConfirm?'Sicher? (nochmal tippen)':'Aufgeben'}
             </button>
           )}
