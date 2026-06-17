@@ -252,6 +252,7 @@ function QueensGame(){
   const audioCtxRef    = useRef(null);
   const genTokenRef    = useRef(0); // increments each newPuzzle to invalidate stale workers
   const activeWorkerRef= useRef(null);
+  const [genMode, setGenMode] = useState(''); // 'worker' | 'sync' — loading diagnostics
   useEffect(()=>{cellsRef.current=cells;},[cells]);
 
   const [vw, setVw] = useState(window.innerWidth);
@@ -350,6 +351,7 @@ function QueensGame(){
     };
     const doSync=()=>{
       if(settled||myToken!==genTokenRef.current)return;
+      setGenMode('sync');
       requestAnimationFrame(()=>requestAnimationFrame(()=>{
         if(myToken!==genTokenRef.current)return;
         finish(generatePuzzle(sObj.n,dk));
@@ -367,7 +369,7 @@ function QueensGame(){
       // If no "ready" ping within 1.5s, the worker is blocked → sync fallback
       const readyTimer=setTimeout(()=>{if(!gotReady&&!settled){cleanup();doSync();}},1500);
       worker.onmessage=(e)=>{
-        if(e.data&&e.data.ready){gotReady=true;clearTimeout(readyTimer);return;}
+        if(e.data&&e.data.ready){gotReady=true;setGenMode('worker');clearTimeout(readyTimer);return;}
         clearTimeout(readyTimer);cleanup();finish(e.data.puzzle);
       };
       worker.onerror=()=>{clearTimeout(readyTimer);cleanup();doSync();};
@@ -575,6 +577,7 @@ function QueensGame(){
         </div>
         <div style={{fontSize:14,letterSpacing:1,color:'#8ab4d4'}}>Generiere Puzzle…</div>
         {sizeKey==='lg'&&<div style={{fontSize:12,color:'#445',marginTop:6}}>Groß kann einige Sekunden dauern</div>}
+        <div style={{fontSize:10,color:'#334',marginTop:8}}>{genMode==='worker'?'⚡ Worker aktiv':genMode==='sync'?'⏳ Sync-Modus':'…'}</div>
       </div>
     );
   }
@@ -589,10 +592,12 @@ function QueensGame(){
     const nativeShare=()=>{
       const sLabel=(SIZES.find(s=>s.n===puzzle.n)?.label||'').toLowerCase();
       const dLabel=(DIFFS.find(d=>d.key===diffKey)?.label||'').toLowerCase();
-      const desc=`${dLabel}es ${puzzle.n}×${puzzle.n} Queens`;
+      // accusative ending: "einen einfachen", "ein schweres" → use -n form
+      const dAdj=dLabel==='einfach'?'einfachen':dLabel==='schwer'?'schweren':dLabel;
+      const desc=`${dAdj} ${puzzle.n}×${puzzle.n} Queens`;
       const intro=playerName?`${playerName} fordert dich zu einem ${desc} heraus!`:`Du wirst zu einem ${desc} herausgefordert!`;
-      const text=`${intro}\n\n`;
-      navigator.share({title:'Queens Challenge',text,url}).catch(()=>{});
+      const text=`${intro}\n\n${url}`;
+      navigator.share({title:'Queens Challenge',text}).catch(()=>{});
     };
     return(
       <div onClick={()=>setShareModal(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
