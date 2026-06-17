@@ -335,15 +335,27 @@ function QueensGame(){
     setShowSol(false);setSolved(false);setCells({});setErrors(new Set());setHint(null);setTimer(0);
     historyRef.current=[];
     setPuzzle(null);setRunning(false);
-    const blob=new Blob([WORKER_SRC],{type:'application/javascript'});
-    const url=URL.createObjectURL(blob);
-    const worker=new Worker(url);
-    worker.onmessage=(e)=>{
-      if(e.data&&e.data.ready)return; // ignore the ready ping
-      setPuzzle(e.data.puzzle);setRunning(true);
-      worker.terminate();URL.revokeObjectURL(url);
-    };
-    worker.postMessage({n:sObj.n,diffKey:dk});
+    const sync=()=>{const p=generatePuzzle(sObj.n,dk);setPuzzle(p);setRunning(true);};
+    let done=false, gotReady=false;
+    const finish=(p)=>{if(done)return;done=true;setPuzzle(p);setRunning(true);};
+    const fallback=()=>{if(done)return;done=true;requestAnimationFrame(()=>requestAnimationFrame(sync));};
+    let worker=null,url=null;
+    try{
+      const blob=new Blob([WORKER_SRC],{type:'application/javascript'});
+      url=URL.createObjectURL(blob);
+      worker=new Worker(url);
+      const kill=()=>{try{worker.terminate();URL.revokeObjectURL(url);}catch{}};
+      // Liveness check: worker must send its "ready" ping within 2s, else it's blocked → sync.
+      const readyTimer=setTimeout(()=>{if(!gotReady){kill();fallback();}},2000);
+      worker.onmessage=(e)=>{
+        if(e.data&&e.data.ready){gotReady=true;clearTimeout(readyTimer);return;}
+        clearTimeout(readyTimer);kill();finish(e.data.puzzle);
+      };
+      worker.onerror=()=>{clearTimeout(readyTimer);kill();fallback();};
+      worker.postMessage({n:sObj.n,diffKey:dk});
+    }catch(err){
+      fallback();
+    }
   },[sizeKey,diffKey]);
 
   // Parse URL params on mount — handles both challenge links and normal start
