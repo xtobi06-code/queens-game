@@ -41,8 +41,7 @@ const DIFFS = [
   { label:"Schwer",  key:"hard" },
 ];
 
-// ── Puzzle generation (shared source for main thread + worker) ────────────────
-const GEN_SRC = `
+// ── Puzzle generation (real functions; also stringified for the worker) ───────
 function shuffle(arr){const a=[...arr];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 
 function genSol(n){
@@ -147,17 +146,15 @@ function generatePuzzle(n, diffKey){
   const picked=diffKey==='easy'?candidates[0]:candidates[candidates.length-1];
   return{n,...picked};
 }
-`;
 
-// Evaluate generation functions into this scope (main-thread fallback + solvePuzzle for hints)
-eval(GEN_SRC);
-
-// Worker source = generation functions + message handler
-const WORKER_SRC = GEN_SRC + `
+// Worker source = all generation functions stringified + message handler
+const WORKER_SRC=[shuffle,genSol,grow,solvePuzzle,isConn,refine,diffScore,genCandidate,generatePuzzle]
+  .map(f=>f.toString()).join('\n')+`
 self.onmessage=function(e){
+  self.postMessage({ready:true});
   const {n,diffKey}=e.data;
   const p=generatePuzzle(n,diffKey);
-  self.postMessage(p);
+  self.postMessage({puzzle:p});
 };
 `;
 
@@ -252,6 +249,7 @@ function QueensGame(){
   const dragVisitedRef = useRef(null);
   const cellsRef       = useRef(cells);
   const historyRef     = useRef([]); // stack of previous cells states
+  const audioCtxRef    = useRef(null);
   useEffect(()=>{cellsRef.current=cells;},[cells]);
 
   const [vw, setVw] = useState(window.innerWidth);
@@ -271,44 +269,44 @@ function QueensGame(){
     return()=>clearInterval(id);
   },[puzzle]);
 
-  // Sound functions
+  // Sound functions — reuse a single AudioContext to avoid the "burst of sounds" bug
   const playSound=(type)=>{
     if(!soundOn)return;
     try{
-      const ctx=new(window.AudioContext||window.webkitAudioContext)();
-      const o=ctx.createOscillator();const g=ctx.createGain();
-      o.connect(g);g.connect(ctx.destination);
-      if(type==='place'){
-        // softer, shorter tone for queen placement
-        o.type='sine';o.frequency.value=520;
-        g.gain.setValueAtTime(0.07,ctx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.08);
-        o.start();o.stop(ctx.currentTime+0.08);
+      if(!audioCtxRef.current){
+        audioCtxRef.current=new(window.AudioContext||window.webkitAudioContext)();
       }
-      else if(type==='x'){o.frequency.value=300;g.gain.setValueAtTime(0.08,ctx.currentTime);g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.08);o.start();o.stop(ctx.currentTime+0.08);}
-      else if(type==='ui'){o.frequency.value=440;g.gain.setValueAtTime(0.06,ctx.currentTime);g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.1);o.start();o.stop(ctx.currentTime+0.1);}
-      else if(type==='nav'){
-        [392,587].forEach((f,i)=>{
-          const o2=ctx.createOscillator();const g2=ctx.createGain();
-          o2.connect(g2);g2.connect(ctx.destination);
-          o2.type='sine';o2.frequency.value=f;
-          g2.gain.setValueAtTime(0.1,ctx.currentTime+i*0.07);
-          g2.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+i*0.07+0.15);
-          o2.start(ctx.currentTime+i*0.07);o2.stop(ctx.currentTime+i*0.07+0.15);
-        });
-        o.start();o.stop(ctx.currentTime);
-      }
-      else if(type==='solve'){
-        [523,659,784,1047].forEach((f,i)=>{
-          const o2=ctx.createOscillator();const g2=ctx.createGain();
-          o2.connect(g2);g2.connect(ctx.destination);
-          o2.frequency.value=f;g2.gain.setValueAtTime(0.15,ctx.currentTime+i*0.1);
-          g2.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+i*0.1+0.2);
-          o2.start(ctx.currentTime+i*0.1);o2.stop(ctx.currentTime+i*0.1+0.2);
-        });
-      }
+      const ctx=audioCtxRef.current;
+      // if the context got suspended (tab minimized), resume it
+      if(ctx.state==='suspended'){ctx.resume();}
+      const now=ctx.currentTime;
+      const beep=(freq,start,dur,vol,wave)=>{
+        const o=ctx.createOscillator();const g=ctx.createGain();
+        o.connect(g);g.connect(ctx.destination);
+        if(wave)o.type=wave;
+        o.frequency.value=freq;
+        g.gain.setValueAtTime(vol,now+start);
+        g.gain.exponentialRampToValueAtTime(0.001,now+start+dur);
+        o.start(now+start);o.stop(now+start+dur);
+      };
+      if(type==='place')beep(520,0,0.08,0.07,'sine');
+      else if(type==='x')beep(300,0,0.08,0.08);
+      else if(type==='ui')beep(440,0,0.1,0.06);
+      else if(type==='nav'){beep(392,0,0.15,0.1,'sine');beep(587,0.07,0.15,0.1,'sine');}
+      else if(type==='solve'){[523,659,784,1047].forEach((f,i)=>beep(f,i*0.1,0.2,0.15));}
     }catch{}
   };
+
+  // Suspend audio when tab is hidden, resume when visible — prevents queued-sound burst
+  useEffect(()=>{
+    const onVis=()=>{
+      const ctx=audioCtxRef.current;if(!ctx)return;
+      if(document.hidden){try{ctx.suspend();}catch{}}
+      else{try{ctx.resume();}catch{}}
+    };
+    document.addEventListener('visibilitychange',onVis);
+    return()=>document.removeEventListener('visibilitychange',onVis);
+  },[]);
 
   const haptic=(type)=>{
     if(!hapticOn||!navigator.vibrate)return;
@@ -321,13 +319,13 @@ function QueensGame(){
     const pieces=Array.from({length:60},(_,i)=>({
       id:i,
       x:Math.random()*100,
-      delay:Math.random()*2.5,  // spread over 2.5s instead of 0.8s
+      delay:Math.random()*1.5,
       color:['#64b4ff','#80e080','#ffe060','#f09090','#b0a0f0','#e8c060'][i%6],
       size:6+Math.random()*7,
       rotate:Math.random()*360,
     }));
     setConfetti(pieces);
-    setTimeout(()=>setConfetti([]),5000);
+    setTimeout(()=>setConfetti([]),3500);
   };
 
   const newPuzzle = useCallback((sk=sizeKey, dk=diffKey)=>{
@@ -338,38 +336,32 @@ function QueensGame(){
     setPuzzle(null);setRunning(false);
 
     // Try Web Worker first (keeps animation smooth); fall back to sync generation
-    let usedWorker=false;
-    try{
-      const blob=new Blob([WORKER_SRC],{type:'application/javascript'});
-      const url=URL.createObjectURL(blob);
-      const worker=new Worker(url);
-      let settled=false;
-      const finish=(p)=>{
-        if(settled)return;settled=true;
-        try{worker.terminate();}catch{}
-        try{URL.revokeObjectURL(url);}catch{}
-        setPuzzle(p);setRunning(true);
-      };
-      worker.onmessage=(e)=>finish(e.data);
-      worker.onerror=()=>{
-        // worker failed at runtime → fall back to sync
-        if(settled)return;settled=true;
-        try{worker.terminate();}catch{}
-        try{URL.revokeObjectURL(url);}catch{}
-        requestAnimationFrame(()=>requestAnimationFrame(()=>{
-          setPuzzle(generatePuzzle(sObj.n,dk));setRunning(true);
-        }));
-      };
-      worker.postMessage({n:sObj.n,diffKey:dk});
-      usedWorker=true;
-    }catch(err){
-      usedWorker=false;
-    }
-
-    if(!usedWorker){
+    let settled=false;
+    const doSync=()=>{
+      if(settled)return;settled=true;
       requestAnimationFrame(()=>requestAnimationFrame(()=>{
         setPuzzle(generatePuzzle(sObj.n,dk));setRunning(true);
       }));
+    };
+    let worker=null,url=null;
+    try{
+      const blob=new Blob([WORKER_SRC],{type:'application/javascript'});
+      url=URL.createObjectURL(blob);
+      worker=new Worker(url);
+      let gotReady=false;
+      const cleanup=()=>{try{worker.terminate();}catch{}try{URL.revokeObjectURL(url);}catch{}};
+      // If no "ready" ping within 1.5s, the worker is blocked → sync fallback
+      const readyTimer=setTimeout(()=>{if(!gotReady&&!settled){cleanup();doSync();}},1500);
+      worker.onmessage=(e)=>{
+        if(e.data&&e.data.ready){gotReady=true;clearTimeout(readyTimer);return;}
+        if(settled)return;settled=true;clearTimeout(readyTimer);cleanup();
+        setPuzzle(e.data.puzzle);setRunning(true);
+      };
+      worker.onerror=()=>{clearTimeout(readyTimer);if(!settled){cleanup();doSync();}};
+      worker.postMessage({n:sObj.n,diffKey:dk});
+    }catch(err){
+      // Worker constructor threw synchronously → immediate sync fallback
+      doSync();
     }
   },[sizeKey,diffKey]);
 
@@ -764,12 +756,12 @@ function QueensGame(){
             <div key={p.id} style={{
               position:'absolute',left:`${p.x}%`,top:'-10px',
               width:p.size,height:p.size,borderRadius:p.size*0.2,
-              background:p.color,opacity:0.9,
-              animation:`confettiFall 1.8s ${p.delay}s ease-in forwards`,
+              background:p.color,opacity:0,
+              animation:`confettiFall 1.2s ${p.delay}s ease-in both`,
               transform:`rotate(${p.rotate}deg)`,
             }}/>
           ))}
-          <style>{`@keyframes confettiFall{0%{transform:translateY(0) rotate(0deg) translateX(0);opacity:1;}100%{transform:translateY(100vh) rotate(720deg) translateX(${Math.random()*60-30}px);opacity:0;}}`}</style>
+          <style>{`@keyframes confettiFall{0%{transform:translateY(0) rotate(0deg) translateX(0);opacity:1;}90%{opacity:1;}100%{transform:translateY(100vh) rotate(720deg) translateX(${Math.random()*60-30}px);opacity:0;}}`}</style>
         </div>
       )}
 
