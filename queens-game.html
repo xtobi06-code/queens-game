@@ -209,6 +209,17 @@ const saveSound=v=>{try{localStorage.setItem('queens_sound',v?'on':'off');}catch
 const loadHaptic=()=>{try{return localStorage.getItem('queens_haptic')!=='off';}catch{return true;}};
 const saveHaptic=v=>{try{localStorage.setItem('queens_haptic',v?'on':'off');}catch{}};
 
+// ── History helpers ───────────────────────────────────────────────────────────
+const loadHistory=()=>{try{return JSON.parse(localStorage.getItem('queens_history'))||[];}catch{return[];}};
+const saveHistory=h=>{try{localStorage.setItem('queens_history',JSON.stringify(h));}catch{}};
+const upsertHistory=(entry)=>{
+  const h=loadHistory();
+  const idx=h.findIndex(e=>e.id===entry.id);
+  if(idx>=0)h[idx]={...h[idx],...entry};
+  else h.unshift(entry);
+  saveHistory(h);
+};
+
 function fmtTime(s){return`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -229,7 +240,7 @@ function QueensGame(){
   const [soundOn, setSoundOn] = useState(loadSound);
   const [hapticOn, setHapticOn] = useState(loadHaptic);
   const [confetti, setConfetti] = useState([]);
-  const [statsTab, setStatsTab]   = useState('sm');
+  const [statsView, setStatsView] = useState('history'); // 'history' | 'records'
   const [stats, setStats]     = useState(loadStats);
   const [playerName, setPlayerName] = useState(loadName);
   const [namePrompt, setNamePrompt] = useState(!loadName());
@@ -242,6 +253,7 @@ function QueensGame(){
   const [shareModal, setShareModal] = useState(null);
   const [giveUpConfirm, setGiveUpConfirm] = useState(false);
   const [gaveUp, setGaveUp] = useState(false);
+  const [viewingHistory, setViewingHistory] = useState(false);
 
   const draggingRef    = useRef(false);
   const dragStartRef   = useRef(null);
@@ -249,6 +261,8 @@ function QueensGame(){
   const cellsRef       = useRef(cells);
   const historyRef     = useRef([]); // stack of previous cells states
   const audioCtxRef    = useRef(null);
+  const histEntryRef   = useRef(null); // current game's history entry id
+  const histScrollRef  = useRef(0);   // preserves verlauf scroll position
   useEffect(()=>{cellsRef.current=cells;},[cells]);
 
   const [vw, setVw] = useState(window.innerWidth);
@@ -327,10 +341,16 @@ function QueensGame(){
     setChallengeMode(false); setChallengeReady(false); setChallengeMeta(null);
     setShowSol(false);setSolved(false);setCells({});setErrors(new Set());setHint(null);setTimer(0);
     historyRef.current=[];
+    histEntryRef.current=null;
+    setViewingHistory(false);
     setPuzzle(null);setRunning(false);
-    const sync=()=>{const p=generatePuzzle(sObj.n,dk);setPuzzle(p);setRunning(true);};
+    const sync=()=>{
+      const p=generatePuzzle(sObj.n,dk);
+      histEntryRef.current=null; // will be created on first queen
+      setPuzzle(p);setRunning(true);
+    };
     let done=false, gotReady=false;
-    const finish=(p)=>{if(done)return;done=true;setPuzzle(p);setRunning(true);};
+    const finish=(p)=>{if(done)return;done=true;histEntryRef.current=null;setPuzzle(p);setRunning(true);};
     const fallback=()=>{if(done)return;done=true;requestAnimationFrame(()=>requestAnimationFrame(sync));};
     let worker=null,url=null;
     try{
@@ -338,7 +358,6 @@ function QueensGame(){
       url=URL.createObjectURL(blob);
       worker=new Worker(url);
       const kill=()=>{try{worker.terminate();URL.revokeObjectURL(url);}catch{}};
-      // Liveness check: worker must send its "ready" ping within 2s, else it's blocked → sync.
       const readyTimer=setTimeout(()=>{if(!gotReady){kill();fallback();}},2000);
       worker.onmessage=(e)=>{
         if(e.data&&e.data.ready){gotReady=true;clearTimeout(readyTimer);return;}
@@ -377,14 +396,32 @@ function QueensGame(){
     newPuzzle('sm','easy');
   },[]);
 
+  const ensureHistEntry=(p,dk,cm)=>{
+    if(histEntryRef.current)return histEntryRef.current;
+    const id=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    const sk=SIZES.find(x=>x.n===p.n)?.key||'sm';
+    const entry={
+      id, ts:Date.now(), sk, dk:dk||diffKey, n:p.n,
+      enc:encodeGrid(p.n,p.regions),
+      status:'started', timer:0, isChallenge:!!(cm??challengeMode),
+    };
+    upsertHistory(entry);
+    histEntryRef.current=id;
+    return id;
+  };
+
   const recompute=(next,puz)=>{
     const p=puz||puzzle;if(!p)return;
     const queens=Object.entries(next).filter(([,v])=>v==='queen').map(([k])=>{const[r,c]=k.split(',').map(Number);return{row:r,col:c};});
+    // Create history entry on first queen placed
+    if(queens.length>=1)ensureHistEntry(p);
     const{errors:errs,solved:s}=validate(queens,p.n,p.regions);
     setErrors(errs);
     if(s){
       setSolved(true);setRunning(false);
       playSound('solve');haptic('solve');launchConfetti();
+      // Update history entry as solved
+      if(histEntryRef.current)upsertHistory({id:histEntryRef.current,status:'solved',timer,cells:JSON.stringify(next)});
       if(!challengeMode){
         const sk2=SIZES.find(x=>x.n===p.n)?.key||sizeKey;
         const dk2=diffKey;
@@ -691,45 +728,141 @@ function QueensGame(){
     </div>
   ) : null;
 
-  // ── Stats modal ───────────────────────────────────────────────────────────
-  const StatsModal=()=>(
-    <div onClick={()=>setShowStats(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:'#16213e',border:'1px solid #334',borderRadius:16,width:'100%',maxWidth:400,overflow:'hidden'}}>
-        <h2 style={{margin:0,padding:'20px 24px 16px',color:'#fff',fontSize:18,letterSpacing:2,textAlign:'center',borderBottom:'1px solid #223'}}>♛ Statistik</h2>
-        {/* Tabs */}
-        <div style={{display:'flex',borderBottom:'1px solid #223'}}>
-          {SIZES.map(s=>(
-            <button key={s.key} onClick={()=>setStatsTab(s.key)} style={{flex:1,padding:'10px 0',border:'none',background:'none',cursor:'pointer',fontWeight:700,fontSize:13,
-              color:statsTab===s.key?'#64b4ff':'#445',borderBottom:statsTab===s.key?'2px solid #64b4ff':'2px solid transparent'}}>
-              {s.label}<br/><span style={{fontSize:10,fontWeight:400,opacity:0.6}}>{s.n}×{s.n}</span>
-            </button>
-          ))}
+  // ── Stats modal (Verlauf + Rekorde) ──────────────────────────────────────
+  const StatsModal=()=>{
+    const [hist]=useState(()=>loadHistory());
+    const sizeLabel={sm:'Klein',md:'Mittel',lg:'Groß'};
+    const diffLabel={easy:'Einfach',hard:'Schwer'};
+    const statusLabel={solved:'✅ Gelöst',gaveUp:'🏳️ Aufgegeben',started:'⬜ Abgebrochen'};
+    const PAL=['#A8C8E8','#A8D8A8','#F0C080','#D0A8D8','#F0A0A0','#F0E890','#A0D8D0','#F0C0A8','#C0C0F0','#C8E8A8','#F0C0D8'];
+
+    const MiniGrid=({enc,n})=>{
+      const regions=React.useMemo(()=>{try{return decodeGrid(n,enc);}catch{return null;}},[enc,n]);
+      if(!regions)return null;
+      const cell=Math.max(2,Math.min(4,Math.floor(80/n)));
+      return(
+        <div style={{display:'grid',gridTemplateColumns:`repeat(${n},${cell}px)`,gridTemplateRows:`repeat(${n},${cell}px)`,gap:0,borderRadius:3,overflow:'hidden',border:'1px solid #223',flexShrink:0}}>
+          {Array.from({length:n},(_,r)=>Array.from({length:n},(_,c)=>{
+            const reg=regions[r][c];
+            return <div key={`${r},${c}`} style={{width:cell,height:cell,background:PAL[reg%PAL.length]}}/>;
+          }))}
         </div>
-        {/* Tab content */}
-        <div style={{padding:'8px 0'}}>
-          {DIFFS.map(d=>{
-            const s=SIZES.find(x=>x.key===statsTab);
-            const countKey=`${statsTab}_${d.key}_count`;const bestKey=`${statsTab}_${d.key}_best`;
-            const count=stats[countKey]||0;const best=stats[bestKey];
-            return(
-              <div key={d.key} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 24px',borderBottom:'1px solid #1a2030'}}>
-                <div style={{color:'#8ab4d4',fontWeight:700,fontSize:15}}>{d.label}</div>
-                <div style={{textAlign:'right'}}>
-                  <div style={{color:count>0?'#fff':'#334',fontSize:14}}>{count>0?`${count}× gelöst`:'noch nicht gespielt'}</div>
-                  {best!==undefined&&<div style={{color:'#ffe060',fontSize:13}}>⏱ Bestzeit {fmtTime(best)}</div>}
-                </div>
+      );
+    };
+
+    const loadPuzzleFromEntry=(entry,fresh)=>{
+      setShowStats(false);
+      try{
+        const regions=decodeGrid(entry.n,entry.enc);
+        const sol=solvePuzzle(entry.n,regions,1);
+        const p={n:entry.n,regions,solution:sol[0]||[]};
+        setSizeKey(entry.sk);setDiffKey(entry.dk);
+        setChallengeMode(false);setChallengeReady(false);setChallengeMeta(null);
+        setShowSol(false);setSolved(false);setErrors(new Set());setHint(null);setTimer(0);
+        historyRef.current=[];histEntryRef.current=entry.id;
+        const isSolved=entry.status==='solved';
+        const savedCells=entry.cells?JSON.parse(entry.cells):{};
+        setCells(fresh?{}:savedCells);
+        setViewingHistory(!fresh&&isSolved);
+        if(!fresh&&isSolved){setTimer(entry.timer||0);setSolved(true);setRunning(false);}
+        else{setTimer(0);}
+        setPuzzle(p);setRunning(!fresh&&isSolved?false:true);
+      }catch(e){console.error(e);}
+    };
+
+    const tabBtn=(view,label)=>(
+      <button onClick={()=>setStatsView(view)} style={{flex:1,padding:'11px 0',border:'none',background:'none',cursor:'pointer',
+        fontWeight:700,fontSize:14,color:statsView===view?'#64b4ff':'#445',
+        borderBottom:statsView===view?'2px solid #64b4ff':'2px solid transparent'}}>
+        {label}
+      </button>
+    );
+
+    return(
+      <div onClick={()=>setShowStats(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:'#16213e',border:'1px solid #334',borderRadius:16,width:'100%',maxWidth:420,overflow:'hidden',maxHeight:'85vh',display:'flex',flexDirection:'column'}}>
+          <h2 style={{margin:0,padding:'18px 24px 14px',color:'#fff',fontSize:18,letterSpacing:2,textAlign:'center',borderBottom:'1px solid #223',flexShrink:0}}>♛ Statistik</h2>
+
+          {/* Two main tabs */}
+          <div style={{display:'flex',borderBottom:'1px solid #223',flexShrink:0}}>
+            {tabBtn('history','🕐 Verlauf')}
+            {tabBtn('records','🏆 Rekorde')}
+          </div>
+
+          <div style={{overflowY:'auto',flex:1}}
+            ref={el=>{if(el&&statsView==='history'){el.scrollTop=histScrollRef.current;}}}
+            onScroll={e=>{if(statsView==='history')histScrollRef.current=e.currentTarget.scrollTop;}}>
+            {statsView==='records'?(
+              <div style={{padding:'8px 0'}}>
+                {SIZES.map(s=>(
+                  <div key={s.key}>
+                    <div style={{padding:'10px 20px 4px',color:'#64b4ff',fontWeight:700,fontSize:13,letterSpacing:1}}>{s.label} ({s.n}×{s.n})</div>
+                    {DIFFS.map(d=>{
+                      const countKey=`${s.key}_${d.key}_count`;const bestKey=`${s.key}_${d.key}_best`;
+                      const count=stats[countKey]||0;const best=stats[bestKey];
+                      return(
+                        <div key={d.key} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 24px',borderBottom:'1px solid #1a2030'}}>
+                          <div style={{color:'#8ab4d4',fontSize:14}}>{d.label}</div>
+                          <div style={{textAlign:'right'}}>
+                            <div style={{color:count>0?'#fff':'#334',fontSize:13}}>{count>0?`${count}× gelöst`:'—'}</div>
+                            {best!==undefined&&<div style={{color:'#ffe060',fontSize:12}}>⏱ {fmtTime(best)}</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
-            );
-          })}
-        </div>
-        <div style={{padding:'16px 24px'}}>
-          <button onClick={()=>setShowStats(false)} style={{width:'100%',padding:10,borderRadius:20,border:'1px solid #334',background:'rgba(255,255,255,0.04)',color:'#556',fontSize:14,cursor:'pointer'}}>
-            Schließen
-          </button>
+            ):(
+              <div>
+                {hist.length===0?(
+                  <div style={{padding:32,textAlign:'center',color:'#445',fontSize:14}}>Noch keine Partien gespeichert.<br/>Setze mindestens eine Krone!</div>
+                ):hist.map(entry=>{
+                  const d=new Date(entry.ts);
+                  const dateStr=d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'});
+                  const timeStr=d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+                  return(
+                    <div key={entry.id} style={{padding:'14px 16px',borderBottom:'1px solid #1a2030'}}>
+                      <div style={{display:'flex',gap:12,alignItems:'center'}}>
+                        <MiniGrid enc={entry.enc} n={entry.n}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                            <span style={{color:'#fff',fontWeight:700,fontSize:13}}>{sizeLabel[entry.sk]||entry.sk}, {diffLabel[entry.dk]||entry.dk}</span>
+                            {entry.isChallenge&&<span style={{fontSize:11,color:'#f09090'}}>⚔️</span>}
+                          </div>
+                          <div style={{color:'#556',fontSize:11,marginTop:2}}>{dateStr} · {timeStr}</div>
+                          <div style={{display:'flex',gap:8,marginTop:3,alignItems:'center'}}>
+                            <span style={{fontSize:12,color:entry.status==='solved'?'#80e080':entry.status==='gaveUp'?'#f09090':'#445'}}>
+                              {statusLabel[entry.status]||'—'}
+                            </span>
+                            {entry.timer>0&&<span style={{fontSize:12,color:'#ffe060'}}>⏱ {fmtTime(entry.timer)}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{display:'flex',gap:8,marginTop:10}}>
+                        <button onClick={()=>loadPuzzleFromEntry(entry,false)} style={{flex:1,padding:'7px 0',borderRadius:10,border:'1px solid #4488cc66',background:'rgba(68,136,204,0.12)',color:'#64b4ff',fontSize:12,cursor:'pointer',fontWeight:600}}>
+                          {entry.status==='solved'?'Lösung ansehen':'Fortsetzen'}
+                        </button>
+                        <button onClick={()=>loadPuzzleFromEntry(entry,true)} style={{flex:1,padding:'7px 0',borderRadius:10,border:'1px solid #44664466',background:'rgba(80,160,80,0.1)',color:'#80d080',fontSize:12,cursor:'pointer',fontWeight:600}}>
+                          Neu starten
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div style={{padding:'14px 20px',borderTop:'1px solid #223',flexShrink:0}}>
+            <button onClick={()=>setShowStats(false)} style={{width:'100%',padding:10,borderRadius:20,border:'1px solid #334',background:'rgba(255,255,255,0.04)',color:'#556',fontSize:14,cursor:'pointer'}}>
+              Schließen
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const {regions,solution}=puzzle;
 
@@ -831,7 +964,7 @@ function QueensGame(){
             color: gaveUp?'#f09090':'#80e080',
             fontWeight:800,fontSize:17,letterSpacing:2,textAlign:'center'}}>
             {gaveUp?'🏳️ Aufgegeben':'🎉 Gelöst!'} {!gaveUp&&fmtTime(timer)}
-            {!challengeMode&&!gaveUp&&(()=>{const sk2=SIZES.find(x=>x.n===puzzle.n)?.key||sizeKey;const best=stats[`${sk2}_${diffKey}_best`];return best===timer&&(stats[`${sk2}_${diffKey}_count`]||0)<=1?<div style={{fontSize:13,color:'#a0f0a0',marginTop:4}}>Erster Rekord! ⭐</div>:best===timer?<div style={{fontSize:13,color:'#ffe060',marginTop:4}}>🏆 Neuer Rekord!</div>:<div style={{fontSize:13,color:'#60a060',marginTop:4}}>Bestzeit: {fmtTime(best)}</div>;})()}
+            {!challengeMode&&!gaveUp&&!viewingHistory&&(()=>{const sk2=SIZES.find(x=>x.n===puzzle.n)?.key||sizeKey;const best=stats[`${sk2}_${diffKey}_best`];return best===timer&&(stats[`${sk2}_${diffKey}_count`]||0)<=1?<div style={{fontSize:13,color:'#a0f0a0',marginTop:4}}>Erster Rekord! ⭐</div>:best===timer?<div style={{fontSize:13,color:'#ffe060',marginTop:4}}>🏆 Neuer Rekord!</div>:<div style={{fontSize:13,color:'#60a060',marginTop:4}}>Bestzeit: {fmtTime(best)}</div>;})()}
             {challengeMode&&(
               <>
                 {!gaveUp&&challengeMeta?.bestTime>0&&(timer<challengeMeta.bestTime
@@ -938,7 +1071,7 @@ function QueensGame(){
           {/* Aufgeben — full width, double tap */}
           {!solved&&(
             <button
-              onClick={()=>{if(giveUpConfirm){setShowSol(true);setRunning(false);setGaveUp(true);setSolved(true);setGiveUpConfirm(false);}else{setGiveUpConfirm(true);setTimeout(()=>setGiveUpConfirm(false),3000);}}}
+              onClick={()=>{if(giveUpConfirm){setShowSol(true);setRunning(false);setGaveUp(true);setSolved(true);setGiveUpConfirm(false);if(histEntryRef.current)upsertHistory({id:histEntryRef.current,status:'gaveUp',timer});}else{setGiveUpConfirm(true);setTimeout(()=>setGiveUpConfirm(false),3000);}}}
               style={{width:'100%',height:40,borderRadius:16,fontWeight:700,fontSize:14,cursor:'pointer',
                 border:`2px solid ${giveUpConfirm?'#ff6060':'#c04040'}`,
                 background:giveUpConfirm?'rgba(255,80,80,0.4)':'rgba(180,50,50,0.3)',
