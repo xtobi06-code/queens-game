@@ -366,15 +366,16 @@ function QueensGame(){
       activeWorkerRef.current=worker;
       let gotReady=false;
       const cleanup=()=>{try{worker.terminate();}catch{}try{URL.revokeObjectURL(url);}catch{}if(activeWorkerRef.current===worker)activeWorkerRef.current=null;};
-      // If no "ready" ping within 1.5s, the worker is blocked → sync fallback
-      const readyTimer=setTimeout(()=>{if(!gotReady&&!settled){cleanup();doSync();}},1500);
+      // If no "ready" ping within 4s, the worker is blocked → sync fallback
+      const readyTimer=setTimeout(()=>{if(!gotReady&&!settled){setGenMode('sync-timeout');cleanup();doSync();}},4000);
       worker.onmessage=(e)=>{
         if(e.data&&e.data.ready){gotReady=true;setGenMode('worker');clearTimeout(readyTimer);return;}
         clearTimeout(readyTimer);cleanup();finish(e.data.puzzle);
       };
-      worker.onerror=()=>{clearTimeout(readyTimer);cleanup();doSync();};
+      worker.onerror=(err)=>{clearTimeout(readyTimer);setGenMode('sync-error');cleanup();doSync();};
       worker.postMessage({n:sObj.n,diffKey:dk});
     }catch(err){
+      setGenMode('sync-catch');
       doSync();
     }
   },[sizeKey,diffKey]);
@@ -577,7 +578,7 @@ function QueensGame(){
         </div>
         <div style={{fontSize:14,letterSpacing:1,color:'#8ab4d4'}}>Generiere Puzzle…</div>
         {sizeKey==='lg'&&<div style={{fontSize:12,color:'#445',marginTop:6}}>Groß kann einige Sekunden dauern</div>}
-        <div style={{fontSize:10,color:'#334',marginTop:8}}>{genMode==='worker'?'⚡ Worker aktiv':genMode==='sync'?'⏳ Sync-Modus':'…'}</div>
+        <div style={{fontSize:10,color:'#334',marginTop:8}}>{genMode==='worker'?'⚡ Worker aktiv':genMode==='sync-timeout'?'⏳ Sync (Timeout)':genMode==='sync-error'?'⏳ Sync (Worker-Fehler)':genMode==='sync-catch'?'⏳ Sync (kein Worker)':genMode==='sync'?'⏳ Sync':'…'}</div>
       </div>
     );
   }
