@@ -789,7 +789,7 @@ function QueensGame(){
             {tabBtn('records','🏆 Rekorde')}
           </div>
 
-          <div style={{overflowY:'auto',flex:1}}
+          <div style={{overflowY:'auto',flex:1,WebkitOverflowScrolling:'touch'}}
             ref={el=>{if(el&&statsView==='history'){el.scrollTop=histScrollRef.current;}}}
             onScroll={e=>{if(statsView==='history')histScrollRef.current=e.currentTarget.scrollTop;}}>
             {statsView==='records'?(
