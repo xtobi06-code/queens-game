@@ -6,7 +6,7 @@
   <title>♛ Queens</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <link rel="apple-touch-icon" href="./favicon.svg">
-  <style>* { margin:0; padding:0; box-sizing:border-box; } body { background:#1a1a2e; overscroll-behavior:none; }</style>
+  <style>* { margin:0; padding:0; box-sizing:border-box; } body { background:#1a1a2e; overscroll-behavior:none; } .smooth-scroll { overflow-y: auto; -webkit-overflow-scrolling: touch; }</style>
 </head>
 <body>
 <div id="root"></div>
@@ -789,7 +789,7 @@ function QueensGame(){
             {tabBtn('records','🏆 Rekorde')}
           </div>
 
-          <div style={{overflowY:'auto',flex:1,WebkitOverflowScrolling:'touch'}}
+          <div className="smooth-scroll" style={{flex:1}}
             ref={el=>{if(el&&statsView==='history'){el.scrollTop=histScrollRef.current;}}}
             onScroll={e=>{if(statsView==='history')histScrollRef.current=e.currentTarget.scrollTop;}}>
             {statsView==='records'?(
