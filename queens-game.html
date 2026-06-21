@@ -134,17 +134,92 @@ function genCandidate(n){
   return null;
 }
 
-function generatePuzzle(n, diffKey){
-  const count=n<=7?4:n<=9?4:3;
+// Logic solver: returns 'solved' (pure logic) or 'stuck' (needs backtracking)
+function logicSolve(n,regions){
+  const possible=Array.from({length:n},()=>Array(n).fill(true));
+  const placed=Array(n).fill(-1);
+  const colUsed=Array(n).fill(false);
+  const regUsed=Array(n).fill(false);
+  const elim=(r,c)=>{possible[r][c]=false;};
+  const place=(row,col)=>{
+    if(placed[row]!==-1)return;
+    placed[row]=col;colUsed[col]=true;regUsed[regions[row][col]]=true;
+    for(let c2=0;c2<n;c2++)if(c2!==col)elim(row,c2);
+    for(let r2=0;r2<n;r2++)if(r2!==row)elim(r2,col);
+    for(let r2=0;r2<n;r2++)for(let c2=0;c2<n;c2++)
+      if(regions[r2][c2]===regions[row][col]&&!(r2===row&&c2===col))elim(r2,c2);
+    for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+      if(!dr&&!dc)continue;
+      const nr=row+dr,nc=col+dc;
+      if(nr>=0&&nr<n&&nc>=0&&nc<n)elim(nr,nc);
+    }
+  };
+  const combo=(arr,k)=>{if(k===0)return[[]];return arr.flatMap((v,i)=>combo(arr.slice(i+1),k-1).map(c=>[v,...c]));};
+  let changed=true;
+  while(changed){
+    changed=false;
+    for(let r=0;r<n;r++){
+      if(placed[r]!==-1)continue;
+      const cands=[];for(let c=0;c<n;c++)if(possible[r][c])cands.push(c);
+      if(!cands.length)return'stuck';
+      if(cands.length===1){place(r,cands[0]);changed=true;}
+    }
+    for(let c=0;c<n;c++){
+      if(colUsed[c])continue;
+      const cands=[];for(let r=0;r<n;r++)if(possible[r][c])cands.push(r);
+      if(!cands.length)return'stuck';
+      if(cands.length===1){place(cands[0],c);changed=true;}
+    }
+    for(let reg=0;reg<n;reg++){
+      if(regUsed[reg])continue;
+      const cands=[];
+      for(let r=0;r<n;r++)for(let c=0;c<n;c++)
+        if(regions[r][c]===reg&&possible[r][c])cands.push([r,c]);
+      if(!cands.length)return'stuck';
+      if(cands.length===1){place(cands[0][0],cands[0][1]);changed=true;}
+    }
+    // Confinement: N regions confined to N cols or N rows
+    const unplaced=[];for(let reg=0;reg<n;reg++)if(!regUsed[reg])unplaced.push(reg);
+    for(let size=2;size<=Math.min(5,unplaced.length-1);size++){
+      for(const regSet of combo(unplaced,size)){
+        const cols=new Set(),rows=new Set();
+        for(const reg of regSet)
+          for(let r=0;r<n;r++)for(let c=0;c<n;c++)
+            if(regions[r][c]===reg&&possible[r][c]){cols.add(c);rows.add(r);}
+        if(cols.size===size)
+          for(const col of cols)for(let r=0;r<n;r++){
+            if(!possible[r][col])continue;
+            const reg=regions[r][col];
+            if(!regSet.includes(reg)&&!regUsed[reg]){elim(r,col);changed=true;}
+          }
+        if(rows.size===size)
+          for(const row of rows)for(let c=0;c<n;c++){
+            if(!possible[row][c])continue;
+            const reg=regions[row][c];
+            if(!regSet.includes(reg)&&!regUsed[reg]){elim(row,c);changed=true;}
+          }
+      }
+    }
+  }
+  return placed.every(p=>p!==-1)?'solved':'stuck';
+}
+
+function generatePuzzle(n, diffKey, extreme){
+  const isExtreme=extreme&&diffKey==='hard';
+  const count=isExtreme?(n<=7?8:n<=9?7:6):(n<=7?4:n<=9?4:3);
+  const overall=Date.now()+(isExtreme?(n>=11?28000:20000):(n>=11?10000:7000));
   const candidates=[];
-  const overall=Date.now()+(n>=11?10000:7000);
   while(candidates.length<count&&Date.now()<overall){
-    const c=genCandidate(n);if(c)candidates.push(c);
+    const c=genCandidate(n);
+    if(!c)continue;
+    // In extreme mode, only keep puzzles that need backtracking
+    if(isExtreme&&logicSolve(n,c.regions)==='solved')continue;
+    candidates.push(c);
   }
   if(!candidates.length)return null;
   candidates.sort((a,b)=>a.score-b.score);
-  const picked=diffKey==='easy'?candidates[0]:candidates[candidates.length-1];
-  return{n,...picked};
+  if(diffKey==='easy')return{n,...candidates[0]};
+  return{n,...candidates[candidates.length-1]};
 }
 
 // Worker source = all generation functions stringified + message handler
@@ -152,8 +227,8 @@ const WORKER_SRC=[shuffle,genSol,grow,solvePuzzle,isConn,refine,diffScore,genCan
   .map(f=>f.toString()).join('\n')+`
 self.onmessage=function(e){
   self.postMessage({ready:true});
-  const {n,diffKey}=e.data;
-  const p=generatePuzzle(n,diffKey);
+  const {n,diffKey,extreme}=e.data;
+  const p=generatePuzzle(n,diffKey,extreme);
   self.postMessage({puzzle:p});
 };
 `;
@@ -208,6 +283,8 @@ const loadSound=()=>{try{return localStorage.getItem('queens_sound')!=='off';}ca
 const saveSound=v=>{try{localStorage.setItem('queens_sound',v?'on':'off');}catch{}};
 const loadHaptic=()=>{try{return localStorage.getItem('queens_haptic')!=='off';}catch{return true;}};
 const saveHaptic=v=>{try{localStorage.setItem('queens_haptic',v?'on':'off');}catch{}};
+const loadExtreme=()=>{try{return localStorage.getItem('queens_extreme')==='on';}catch{return false;}};
+const saveExtreme=v=>{try{localStorage.setItem('queens_extreme',v?'on':'off');}catch{}};
 
 // ── History helpers ───────────────────────────────────────────────────────────
 const loadHistory=()=>{try{return JSON.parse(localStorage.getItem('queens_history'))||[];}catch{return[];}};
@@ -239,6 +316,7 @@ function QueensGame(){
   const [settingsName, setSettingsName] = useState('');
   const [soundOn, setSoundOn] = useState(loadSound);
   const [hapticOn, setHapticOn] = useState(loadHaptic);
+  const [extremeMode, setExtremeMode] = useState(loadExtreme);
   const [confetti, setConfetti] = useState([]);
   const [statsView, setStatsView] = useState('history'); // 'history' | 'records'
   const [stats, setStats]     = useState(loadStats);
@@ -345,8 +423,8 @@ function QueensGame(){
     setViewingHistory(false);
     setPuzzle(null);setRunning(false);
     const sync=()=>{
-      const p=generatePuzzle(sObj.n,dk);
-      histEntryRef.current=null; // will be created on first queen
+      const p=generatePuzzle(sObj.n,dk,extremeMode);
+      histEntryRef.current=null;
       setPuzzle(p);setRunning(true);
     };
     let done=false, gotReady=false;
@@ -364,11 +442,11 @@ function QueensGame(){
         clearTimeout(readyTimer);kill();finish(e.data.puzzle);
       };
       worker.onerror=()=>{clearTimeout(readyTimer);kill();fallback();};
-      worker.postMessage({n:sObj.n,diffKey:dk});
+      worker.postMessage({n:sObj.n,diffKey:dk,extreme:extremeMode});
     }catch(err){
       fallback();
     }
-  },[sizeKey,diffKey]);
+  },[sizeKey,diffKey,extremeMode]);
 
   // Parse URL params on mount — handles both challenge links and normal start
   useEffect(()=>{
@@ -583,6 +661,7 @@ function QueensGame(){
           }))}
         </div>
         <div style={{fontSize:14,letterSpacing:1,color:'#8ab4d4'}}>Generiere Feld…</div>
+        {extremeMode&&diffKey==='hard'&&<div style={{fontSize:12,color:'#f09090',marginTop:6}}>Extrem-Modus aktiv</div>}
         {sizeKey==='lg'&&<div style={{fontSize:12,color:'#445',marginTop:6}}>Groß kann einige Sekunden dauern</div>}
 
       </div>
@@ -683,7 +762,7 @@ function QueensGame(){
 
         {/* Haptic — only shown if device supports it */}
         {!!navigator.vibrate&&(
-        <div style={{marginBottom:24,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div style={{marginBottom:16,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div>
             <div style={{color:'#8ab4d4',fontSize:13,fontWeight:600}}>Haptik</div>
             <div style={{color:'#445',fontSize:11,marginTop:2}}>Vibration</div>
@@ -694,6 +773,18 @@ function QueensGame(){
           </div>
         </div>
         )}
+
+        {/* Extreme mode */}
+        <div style={{marginBottom:24,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div>
+            <div style={{color:'#f09090',fontSize:13,fontWeight:600}}>Extrem-Modus</div>
+            <div style={{color:'#445',fontSize:11,marginTop:2}}>Längere Ladezeit bei „Schwer" — dafür wirklich schwere Rätsel</div>
+          </div>
+          <div onClick={()=>{const v=!extremeMode;setExtremeMode(v);saveExtreme(v);}}
+            style={{width:48,height:26,borderRadius:13,background:extremeMode?'rgba(240,100,100,0.3)':'rgba(255,255,255,0.06)',border:`2px solid ${extremeMode?'#f09090':'#334'}`,cursor:'pointer',position:'relative',transition:'all .2s',flexShrink:0}}>
+            <div style={{position:'absolute',top:2,left:extremeMode?22:2,width:18,height:18,borderRadius:'50%',background:extremeMode?'#f09090':'#445',transition:'left .2s'}}/>
+          </div>
+        </div>
 
         {/* Name */}
         <div style={{marginBottom:24}}>
