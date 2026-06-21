@@ -567,11 +567,11 @@ function QueensGame(){
       playSound('solve');haptic('solve');launchConfetti();
       // Update history entry as solved
       if(histEntryRef.current)upsertHistory({id:histEntryRef.current,status:'solved',timer,cells:JSON.stringify(next)});
-      if(!challengeMode){
-        const sk2=SIZES.find(x=>x.n===p.n)?.key||sizeKey;
-        const dk2=diffKey;
-        // use 'extreme' as diffKey for stats when extreme mode is on
-        const statsKey=extremeMode?`${sk2}_extreme`:`${sk2}_${dk2}`;
+      const sk2=SIZES.find(x=>x.n===p.n)?.key||sizeKey;
+      const isExtremeChallenge=challengeMode&&challengeMeta?.isExtreme;
+      if(!challengeMode||isExtremeChallenge){
+        // use 'extreme' as key for extreme mode or extreme challenges
+        const statsKey=(extremeMode||isExtremeChallenge)?`${sk2}_extreme`:`${sk2}_${diffKey}`;
         const countKey=`${statsKey}_count`;const bestKey=`${statsKey}_best`;
         setStats(prev=>{const nx={...prev};nx[countKey]=(nx[countKey]||0)+1;if(!nx[bestKey]||timer<nx[bestKey])nx[bestKey]=timer;saveStats(nx);return nx;});
       }
