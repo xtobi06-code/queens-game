@@ -6,7 +6,7 @@
   <title>♛ Queens</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <link rel="apple-touch-icon" href="./favicon.svg">
-  <style>* { margin:0; padding:0; box-sizing:border-box; } body { background:#1a1a2e; overscroll-behavior:none; } .smooth-scroll { overflow-y: auto; -webkit-overflow-scrolling: touch; }</style>
+  <style>* { margin:0; padding:0; box-sizing:border-box; } body { background:#1a1a2e; overscroll-behavior:none; } .smooth-scroll { overflow-y: scroll !important; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; will-change: scroll-position; }</style>
 </head>
 <body>
 <div id="root"></div>
@@ -404,12 +404,12 @@ function QueensGame(){
   const [vw, setVw] = useState(window.innerWidth);
   useEffect(()=>{const f=()=>setVw(window.innerWidth);window.addEventListener('resize',f);return()=>window.removeEventListener('resize',f);},[]);
 
-  // Timer
+  // Timer — pauses while a modal is open (re-renders would break modal scrolling)
   useEffect(()=>{
-    if(!running||solved)return;
+    if(!running||solved||showStats||showSettings||shareModal)return;
     const id=setInterval(()=>setTimer(t=>t+1),1000);
     return()=>clearInterval(id);
-  },[running,solved]);
+  },[running,solved,showStats,showSettings,shareModal]);
 
   // (Loading animation now uses a pure CSS crown spin — no JS interval needed)
 
@@ -570,7 +570,9 @@ function QueensGame(){
       if(!challengeMode){
         const sk2=SIZES.find(x=>x.n===p.n)?.key||sizeKey;
         const dk2=diffKey;
-        const countKey=`${sk2}_${dk2}_count`;const bestKey=`${sk2}_${dk2}_best`;
+        // use 'extreme' as diffKey for stats when extreme mode is on
+        const statsKey=extremeMode?`${sk2}_extreme`:`${sk2}_${dk2}`;
+        const countKey=`${statsKey}_count`;const bestKey=`${statsKey}_best`;
         setStats(prev=>{const nx={...prev};nx[countKey]=(nx[countKey]||0)+1;if(!nx[bestKey]||timer<nx[bestKey])nx[bestKey]=timer;saveStats(nx);return nx;});
       }
     }
@@ -962,17 +964,22 @@ function QueensGame(){
 
     return(
       <div onClick={()=>setShowStats(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:16,width:'100%',maxWidth:420,overflow:'hidden',maxHeight:'85vh',display:'flex',flexDirection:'column'}}>
-          <h2 style={{margin:0,padding:'18px 24px 14px',color:'#fff',fontSize:18,letterSpacing:2,textAlign:'center',borderBottom:`1px solid ${T.borderDim}`,flexShrink:0}}>♛ Statistik</h2>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:16,width:'100%',maxWidth:420,overflow:'clip',maxHeight:'85vh',display:'flex',flexDirection:'column'}}>
+          <h2 style={{margin:0,padding:'18px 24px 14px',color:'#fff',fontSize:18,letterSpacing:2,textAlign:'center',flexShrink:0}}>♛ Statistik</h2>
 
           {/* Two main tabs */}
-          <div style={{display:'flex',borderBottom:`1px solid ${T.borderDim}`,flexShrink:0}}>
+          <div style={{display:'flex',flexShrink:0}}>
             {tabBtn('history','🕐 Verlauf')}
             {tabBtn('records','🏆 Rekorde')}
           </div>
 
           <div className="smooth-scroll" style={{flex:1}}
-            ref={el=>{if(el&&statsView==='history'){el.scrollTop=histScrollRef.current;}}}
+            ref={el=>{
+              if(el&&statsView==='history'&&!el.dataset.scrollInit){
+                el.dataset.scrollInit='1';
+                el.scrollTop=histScrollRef.current;
+              }
+            }}
             onScroll={e=>{if(statsView==='history')histScrollRef.current=e.currentTarget.scrollTop;}}>
             {statsView==='records'?(
               <div style={{padding:'8px 0'}}>
@@ -983,7 +990,7 @@ function QueensGame(){
                       const countKey=`${s.key}_${d.key}_count`;const bestKey=`${s.key}_${d.key}_best`;
                       const count=stats[countKey]||0;const best=stats[bestKey];
                       return(
-                        <div key={d.key} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 24px',borderBottom:'1px solid #1a2030'}}>
+                        <div key={d.key} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 24px'}}>
                           <div style={{color:'#8ab4d4',fontSize:14}}>{d.label}</div>
                           <div style={{textAlign:'right'}}>
                             <div style={{color:count>0?'#fff':'#334',fontSize:13}}>{count>0?`${count}× gelöst`:'—'}</div>
@@ -994,6 +1001,30 @@ function QueensGame(){
                     })}
                   </div>
                 ))}
+                {/* Extrem section — only shown if at least one extreme puzzle solved */}
+                {(()=>{
+                  const extremeSizes=SIZES.filter(s=>s.key!=='sm'&&(stats[`${s.key}_extreme_count`]||0)>0);
+                  if(!extremeSizes.length)return null;
+                  return(
+                    <div>
+                      <div style={{height:1,background:'#b080ff44',margin:'8px 0'}}/>
+                      <div style={{padding:'10px 20px 4px',color:'#b080ff',fontWeight:700,fontSize:13,letterSpacing:1}}>Extrem</div>
+                      {extremeSizes.map(s=>{
+                        const count=stats[`${s.key}_extreme_count`]||0;
+                        const best=stats[`${s.key}_extreme_best`];
+                        return(
+                          <div key={s.key} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 24px'}}>
+                            <div style={{color:'#b080ff',fontSize:14}}>{s.label}</div>
+                            <div style={{textAlign:'right'}}>
+                              <div style={{color:'#fff',fontSize:13}}>{count}× gelöst</div>
+                              {best!==undefined&&<div style={{color:'#ffe060',fontSize:12}}>⏱ {fmtTime(best)}</div>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             ):(
               <div>
@@ -1004,7 +1035,7 @@ function QueensGame(){
                   const dateStr=d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'});
                   const timeStr=d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
                   return(
-                    <div key={entry.id} style={{padding:'14px 16px',borderBottom:'1px solid #1a2030'}}>
+                    <div key={entry.id} style={{padding:'14px 16px'}}>
                       <div style={{display:'flex',gap:12,alignItems:'center'}}>
                         <MiniGrid enc={entry.enc} n={entry.n}/>
                         <div style={{flex:1,minWidth:0}}>
@@ -1037,7 +1068,7 @@ function QueensGame(){
             )}
           </div>
 
-          <div style={{padding:'14px 20px',borderTop:'1px solid #223',flexShrink:0}}>
+          <div style={{padding:'14px 20px',flexShrink:0}}>
             <button onClick={()=>setShowStats(false)} style={{width:'100%',padding:10,borderRadius:20,border:'1px solid #334',background:'rgba(255,255,255,0.04)',color:'#556',fontSize:14,cursor:'pointer'}}>
               Schließen
             </button>
