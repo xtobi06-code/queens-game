@@ -766,7 +766,7 @@ function QueensGame(){
       const sLabel=(SIZES.find(s=>s.n===puzzle.n)?.label||'').toLowerCase();
       let desc;
       if(extremeMode){
-        desc=`extremes ${puzzle.n}×${puzzle.n} Queens`;
+        desc=`extremen ${puzzle.n}×${puzzle.n} Queens`;
       } else {
         const dLabel=(DIFFS.find(d=>d.key===diffKey)?.label||'').toLowerCase();
         const dAdj=dLabel==='einfach'?'einfachen':dLabel==='schwer'?'schweren':dLabel;
