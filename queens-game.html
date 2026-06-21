@@ -124,8 +124,8 @@ function diffScore(n,regions){
 }
 
 function genCandidate(n){
-  const budget=n<=7?300:n<=9?500:900;
-  const deadline=Date.now()+8000;
+  const budget=n<=7?400:n<=9?800:1600;
+  const deadline=Date.now()+9000;
   while(Date.now()<deadline){
     const sol=genSol(n);if(!sol)continue;
     const g=grow(n,sol);
@@ -140,7 +140,7 @@ function logicSolve(n,regions){
   const placed=Array(n).fill(-1);
   const colUsed=Array(n).fill(false);
   const regUsed=Array(n).fill(false);
-  const elim=(r,c)=>{possible[r][c]=false;};
+  const elim=(r,c)=>{if(possible[r][c]){possible[r][c]=false;return true;}return false;};
   const place=(row,col)=>{
     if(placed[row]!==-1)return;
     placed[row]=col;colUsed[col]=true;regUsed[regions[row][col]]=true;
@@ -158,6 +158,7 @@ function logicSolve(n,regions){
   let changed=true;
   while(changed){
     changed=false;
+    // Singles: row, col, region
     for(let r=0;r<n;r++){
       if(placed[r]!==-1)continue;
       const cands=[];for(let c=0;c<n;c++)if(possible[r][c])cands.push(c);
@@ -172,32 +173,64 @@ function logicSolve(n,regions){
     }
     for(let reg=0;reg<n;reg++){
       if(regUsed[reg])continue;
-      const cands=[];
-      for(let r=0;r<n;r++)for(let c=0;c<n;c++)
-        if(regions[r][c]===reg&&possible[r][c])cands.push([r,c]);
-      if(!cands.length)return'stuck';
-      if(cands.length===1){place(cands[0][0],cands[0][1]);changed=true;}
+      const cells=[];for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(regions[r][c]===reg&&possible[r][c])cells.push([r,c]);
+      if(!cells.length)return'stuck';
+      if(cells.length===1){place(cells[0][0],cells[0][1]);changed=true;}
     }
-    // Confinement: N regions confined to N cols or N rows
-    const unplaced=[];for(let reg=0;reg<n;reg++)if(!regUsed[reg])unplaced.push(reg);
-    for(let size=2;size<=Math.min(5,unplaced.length-1);size++){
-      for(const regSet of combo(unplaced,size)){
-        const cols=new Set(),rows=new Set();
-        for(const reg of regSet)
-          for(let r=0;r<n;r++)for(let c=0;c<n;c++)
-            if(regions[r][c]===reg&&possible[r][c]){cols.add(c);rows.add(r);}
-        if(cols.size===size)
-          for(const col of cols)for(let r=0;r<n;r++){
-            if(!possible[r][col])continue;
-            const reg=regions[r][col];
-            if(!regSet.includes(reg)&&!regUsed[reg]){elim(r,col);changed=true;}
-          }
+    if(changed)continue;
+    // Region confined to a single row or column → clear other regions there
+    for(let reg=0;reg<n;reg++){
+      if(regUsed[reg])continue;
+      const cells=[];for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(regions[r][c]===reg&&possible[r][c])cells.push([r,c]);
+      const rows=new Set(cells.map(x=>x[0])),cols=new Set(cells.map(x=>x[1]));
+      if(rows.size===1){const rr=cells[0][0];for(let c=0;c<n;c++)if(regions[rr][c]!==reg&&elim(rr,c))changed=true;}
+      if(cols.size===1){const cc=cells[0][1];for(let r=0;r<n;r++)if(regions[r][cc]!==reg&&elim(r,cc))changed=true;}
+    }
+    if(changed)continue;
+    // Naked sets — both directions, size 2..3
+    const unplacedRegs=[];for(let reg=0;reg<n;reg++)if(!regUsed[reg])unplacedRegs.push(reg);
+    const freeRows=[];for(let r=0;r<n;r++)if(placed[r]===-1)freeRows.push(r);
+    const freeCols=[];for(let c=0;c<n;c++)if(!colUsed[c])freeCols.push(c);
+    const maxSize=Math.min(3,unplacedRegs.length-1);
+    for(let size=2;size<=maxSize&&!changed;size++){
+      // (a) N regions occupy exactly N rows/cols → clear other regions from those lines
+      for(const regSet of combo(unplacedRegs,size)){
+        const rows=new Set(),cols=new Set();
+        for(const reg of regSet)for(let r=0;r<n;r++)for(let c=0;c<n;c++)
+          if(regions[r][c]===reg&&possible[r][c]){rows.add(r);cols.add(c);}
         if(rows.size===size)
-          for(const row of rows)for(let c=0;c<n;c++){
-            if(!possible[row][c])continue;
-            const reg=regions[row][c];
-            if(!regSet.includes(reg)&&!regUsed[reg]){elim(row,c);changed=true;}
+          for(const row of rows)for(let c=0;c<n;c++)
+            if(possible[row][c]&&!regSet.includes(regions[row][c])&&!regUsed[regions[row][c]])if(elim(row,c))changed=true;
+        if(cols.size===size)
+          for(const col of cols)for(let r=0;r<n;r++)
+            if(possible[r][col]&&!regSet.includes(regions[r][col])&&!regUsed[regions[r][col]])if(elim(r,col))changed=true;
+        if(changed)break;
+      }
+      if(changed)break;
+      // (b) N rows contain only N regions → confine those regions to these rows
+      for(const rowSet of combo(freeRows,size)){
+        const regs=new Set();
+        for(const row of rowSet)for(let c=0;c<n;c++)if(possible[row][c])regs.add(regions[row][c]);
+        if(regs.size===size)
+          for(let r=0;r<n;r++){
+            if(rowSet.includes(r))continue;
+            for(let c=0;c<n;c++)
+              if(possible[r][c]&&regs.has(regions[r][c])&&!regUsed[regions[r][c]])if(elim(r,c))changed=true;
           }
+        if(changed)break;
+      }
+      if(changed)break;
+      // (c) N cols contain only N regions → confine those regions to these cols
+      for(const colSet of combo(freeCols,size)){
+        const regs=new Set();
+        for(const col of colSet)for(let r=0;r<n;r++)if(possible[r][col])regs.add(regions[r][col]);
+        if(regs.size===size)
+          for(let c=0;c<n;c++){
+            if(colSet.includes(c))continue;
+            for(let r=0;r<n;r++)
+              if(possible[r][c]&&regs.has(regions[r][c])&&!regUsed[regions[r][c]])if(elim(r,c))changed=true;
+          }
+        if(changed)break;
       }
     }
   }
@@ -301,8 +334,8 @@ function fmtTime(s){return`${String(Math.floor(s/60)).padStart(2,'0')}:${String(
 
 // ── Main Component ────────────────────────────────────────────────────────────
 function QueensGame(){
-  const [sizeKey, setSizeKey] = useState('sm');
-  const [diffKey, setDiffKey] = useState('easy');
+  const [sizeKey, setSizeKey] = useState(()=>loadExtreme()?'md':'sm');
+  const [diffKey, setDiffKey] = useState(()=>loadExtreme()?'hard':'easy');
   const [puzzle, setPuzzle]   = useState(null);
   const [cells, setCells]     = useState({});
   const [errors, setErrors]   = useState(new Set());
@@ -414,7 +447,7 @@ function QueensGame(){
     setTimeout(()=>setConfetti([]),3500);
   };
 
-  const newPuzzle = useCallback((sk=sizeKey, dk=diffKey)=>{
+  const newPuzzle = useCallback((sk=sizeKey, dk=diffKey, extr=extremeMode, attempt=0)=>{
     const sObj=SIZES.find(s=>s.key===sk);
     setChallengeMode(false); setChallengeReady(false); setChallengeMeta(null);
     setShowSol(false);setSolved(false);setCells({});setErrors(new Set());setHint(null);setTimer(0);
@@ -422,13 +455,17 @@ function QueensGame(){
     histEntryRef.current=null;
     setViewingHistory(false);
     setPuzzle(null);setRunning(false);
-    const sync=()=>{
-      const p=generatePuzzle(sObj.n,dk,extremeMode);
-      histEntryRef.current=null;
-      setPuzzle(p);setRunning(true);
+    // Retry if generation returns null (can happen on large/extreme boards near time limit)
+    const deliver=(p)=>{
+      if(p){histEntryRef.current=null;setPuzzle(p);setRunning(true);}
+      else if(attempt<4){newPuzzle(sk,dk,extr,attempt+1);}
+      else{/* give up gracefully: fall back to an easy puzzle of same size */
+        const fb=generatePuzzle(sObj.n,'easy',false)||generatePuzzle(7,'easy',false);
+        setPuzzle(fb);setRunning(true);}
     };
+    const sync=()=>deliver(generatePuzzle(sObj.n,dk,extr));
     let done=false, gotReady=false;
-    const finish=(p)=>{if(done)return;done=true;histEntryRef.current=null;setPuzzle(p);setRunning(true);};
+    const finish=(p)=>{if(done)return;done=true;deliver(p);};
     const fallback=()=>{if(done)return;done=true;requestAnimationFrame(()=>requestAnimationFrame(sync));};
     let worker=null,url=null;
     try{
@@ -442,7 +479,7 @@ function QueensGame(){
         clearTimeout(readyTimer);kill();finish(e.data.puzzle);
       };
       worker.onerror=()=>{clearTimeout(readyTimer);kill();fallback();};
-      worker.postMessage({n:sObj.n,diffKey:dk,extreme:extremeMode});
+      worker.postMessage({n:sObj.n,diffKey:dk,extreme:extr});
     }catch(err){
       fallback();
     }
@@ -471,7 +508,10 @@ function QueensGame(){
         return;
       }catch(e){console.error('Bad challenge link',e);}
     }
-    newPuzzle('sm','easy');
+    const isExtr=loadExtreme();
+    const initSk=isExtr?'md':'sm';
+    const initDk=isExtr?'hard':'easy';
+    newPuzzle(initSk,initDk,isExtr);
   },[]);
 
   const ensureHistEntry=(p,dk,cm)=>{
@@ -482,6 +522,7 @@ function QueensGame(){
       id, ts:Date.now(), sk, dk:dk||diffKey, n:p.n,
       enc:encodeGrid(p.n,p.regions),
       status:'started', timer:0, isChallenge:!!(cm??challengeMode),
+      isExtreme:!!(extremeMode&&(dk||diffKey)==='hard'),
     };
     upsertHistory(entry);
     histEntryRef.current=id;
@@ -579,7 +620,30 @@ function QueensGame(){
   const maxBoard=Math.min(vw-32,520);
   const cellSize=Math.max(20,Math.floor((maxBoard-6)/n));
 
-  const btnStyle=(active,color='#64b4ff')=>({
+  // Theme: normal=blue, extreme=violet
+  const T = extremeMode ? {
+    bg:       'linear-gradient(135deg,#120a1e,#1a0f2e,#0f0a20)',
+    bgCard:   '#130d20',
+    accent:   '#b080ff',
+    accentDim:'#b080ff55',
+    accentRgb:'176,128,255',
+    border:   '#3a2060',
+    borderDim:'#2a1848',
+    text:     '#c0a0e8',
+    glow:     'rgba(160,100,255,0.5)',
+  } : {
+    bg:       'linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)',
+    bgCard:   '#16213e',
+    accent:   '#64b4ff',
+    accentDim:'#64b4ff55',
+    accentRgb:'100,180,255',
+    border:   '#334',
+    borderDim:'#223',
+    text:     '#8ab4d4',
+    glow:     'rgba(100,180,255,0.4)',
+  };
+
+  const btnStyle=(active,color=T.accent)=>({
     padding:'7px 14px',borderRadius:20,fontWeight:700,fontSize:14,cursor:'pointer',
     border:`2px solid ${active?color:color+'55'}`,
     background:active?`rgba(${hexRgb(color)},0.18)`:'rgba(255,255,255,0.04)',
@@ -590,17 +654,17 @@ function QueensGame(){
 
   // ── Name prompt overlay ───────────────────────────────────────────────────
   if(namePrompt)return(
-    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Segoe UI',system-ui,sans-serif",padding:24}}>
-      <div style={{background:'#16213e',border:'1px solid #334',borderRadius:16,padding:'36px 40px',maxWidth:320,width:'100%',textAlign:'center'}}>
+    <div style={{minHeight:'100vh',background:T.bg,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Segoe UI',system-ui,sans-serif",padding:24}}>
+      <div style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:16,padding:'36px 40px',maxWidth:320,width:'100%',textAlign:'center'}}>
         <div style={{fontSize:36,marginBottom:12,color:'#fff'}}>♛</div>
         <h2 style={{color:'#fff',marginBottom:8,fontSize:20}}>Willkommen!</h2>
         <p style={{color:'#667',fontSize:14,marginBottom:24}}>Wie heißt du? Dein Name erscheint in Challenge-Links.</p>
         <input value={nameInput} onChange={e=>setNameInput(e.target.value)}
           onKeyDown={e=>{if(e.key==='Enter'&&nameInput.trim()){saveName(nameInput.trim());setPlayerName(nameInput.trim());setNamePrompt(false);}}}
           placeholder="Dein Name…"
-          style={{width:'100%',padding:'10px 16px',borderRadius:20,border:'2px solid #334',background:'rgba(255,255,255,0.06)',color:'#fff',fontSize:16,marginBottom:16,outline:'none'}} />
+          style={{width:'100%',padding:'10px 16px',borderRadius:20,border:`2px solid ${T.border}`,background:'rgba(255,255,255,0.06)',color:'#fff',fontSize:16,marginBottom:16,outline:'none'}} />
         <button onClick={()=>{if(nameInput.trim()){saveName(nameInput.trim());setPlayerName(nameInput.trim());}setNamePrompt(false);}}
-          style={{width:'100%',padding:'10px',borderRadius:20,border:'2px solid #64b4ff',background:'rgba(100,180,255,0.15)',color:'#64b4ff',fontWeight:700,fontSize:16,cursor:'pointer'}}>
+          style={{width:'100%',padding:'10px',borderRadius:20,border:`2px solid ${T.accent}`,background:`rgba(${T.accentRgb},0.15)`,color:T.accent,fontWeight:700,fontSize:16,cursor:'pointer'}}>
           Los geht's
         </button>
       </div>
@@ -638,13 +702,11 @@ function QueensGame(){
 
   // ── Loading screen with animated 3×3 ─────────────────────────────────────
   if(!puzzle){
-    // 3×3 grid: center=crown, 8 outer cells cycle through filling
     const outerColors=['#A8C8E8','#A8D8A8','#F0C080','#D0A8D8','#F0A0A0','#F0E890','#A0D8D0','#F0C0A8'];
     const outerBorders=['#3A6090','#3A8040','#B07020','#8040A0','#C03030','#A89800','#208878','#B06030'];
-    // positions: top-left, top, top-right, right, bottom-right, bottom, bottom-left, left
     const positions=[[0,0],[0,1],[0,2],[1,2],[2,2],[2,1],[2,0],[1,0]];
     return(
-      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:"'Segoe UI',system-ui,sans-serif",color:'#8ab4d4'}}>
+      <div style={{minHeight:'100vh',background:T.bg,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:"'Segoe UI',system-ui,sans-serif",color:T.text}}>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,52px)',gridTemplateRows:'repeat(3,52px)',gap:4,marginBottom:24}}>
           {Array.from({length:3},(_,row)=>Array.from({length:3},(_,col)=>{
             const key=`${row},${col}`;
@@ -652,18 +714,16 @@ function QueensGame(){
             const outerIdx=positions.findIndex(([r,c])=>r===row&&c===col);
             return(
               <div key={key} style={{width:52,height:52,borderRadius:8,
-                background:isCenter?'rgba(100,180,255,0.15)':outerColors[outerIdx],
-                border:`2px solid ${isCenter?'#64b4ff44':outerBorders[outerIdx]}`,
-                display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'}}>
+                background:isCenter?`rgba(${T.accentRgb},0.15)`:outerColors[outerIdx],
+                border:`2px solid ${isCenter?T.accentDim:outerBorders[outerIdx]}`,
+                display:'flex',alignItems:'center',justifyContent:'center'}}>
                 {isCenter&&<span style={{fontSize:28,color:'#fff',lineHeight:1}}>♛</span>}
               </div>
             );
           }))}
         </div>
-        <div style={{fontSize:14,letterSpacing:1,color:'#8ab4d4'}}>Generiere Feld…</div>
-        {extremeMode&&diffKey==='hard'&&<div style={{fontSize:12,color:'#f09090',marginTop:6}}>Extrem-Modus aktiv</div>}
+        <div style={{fontSize:14,letterSpacing:1,color:T.text}}>Generiere Feld…</div>
         {sizeKey==='lg'&&<div style={{fontSize:12,color:'#445',marginTop:6}}>Groß kann einige Sekunden dauern</div>}
-
       </div>
     );
   }
@@ -687,7 +747,7 @@ function QueensGame(){
     };
     return(
       <div onClick={()=>setShareModal(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-        <div onClick={e=>e.stopPropagation()} style={{background:'#16213e',border:'2px solid #e8c06066',borderRadius:16,width:'100%',maxWidth:400,padding:'28px 24px'}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.bgCard,border:'2px solid #e8c06066',borderRadius:16,width:'100%',maxWidth:400,padding:'28px 24px'}}>
           <div style={{textAlign:'center',marginBottom:20}}>
             <div style={{fontSize:28,marginBottom:6}}>⚔️</div>
             <h2 style={{color:'#e8c060',fontSize:18,fontWeight:800,margin:0}}>Challenge teilen</h2>
@@ -745,7 +805,7 @@ function QueensGame(){
   const nameSaved = (settingsName || playerName).trim() === playerName;
   const settingsModalEl = showSettings ? (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-      <div style={{background:'#16213e',border:'1px solid #334',borderRadius:16,width:'100%',maxWidth:400,padding:'28px 24px'}}>
+      <div style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:16,width:'100%',maxWidth:400,padding:'28px 24px'}}>
         <h2 style={{color:'#fff',fontSize:18,fontWeight:800,margin:'0 0 20px',textAlign:'center',letterSpacing:1}}>⚙️ Einstellungen</h2>
 
         {/* Sound */}
@@ -777,12 +837,12 @@ function QueensGame(){
         {/* Extreme mode */}
         <div style={{marginBottom:24,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div>
-            <div style={{color:'#f09090',fontSize:13,fontWeight:600}}>Extrem-Modus</div>
-            <div style={{color:'#445',fontSize:11,marginTop:2}}>Längere Ladezeit bei „Schwer" — dafür wirklich schwere Rätsel</div>
+            <div style={{color:'#b080ff',fontSize:13,fontWeight:600}}>Extrem-Modus</div>
+            <div style={{color:'#445',fontSize:11,marginTop:2}}>Längere Ladezeit — nur Rätsel die Hypothesen erfordern</div>
           </div>
-          <div onClick={()=>{const v=!extremeMode;setExtremeMode(v);saveExtreme(v);}}
-            style={{width:48,height:26,borderRadius:13,background:extremeMode?'rgba(240,100,100,0.3)':'rgba(255,255,255,0.06)',border:`2px solid ${extremeMode?'#f09090':'#334'}`,cursor:'pointer',position:'relative',transition:'all .2s',flexShrink:0}}>
-            <div style={{position:'absolute',top:2,left:extremeMode?22:2,width:18,height:18,borderRadius:'50%',background:extremeMode?'#f09090':'#445',transition:'left .2s'}}/>
+          <div onClick={()=>{const v=!extremeMode;setExtremeMode(v);saveExtreme(v);if(v){setSizeKey('md');setDiffKey('hard');newPuzzle('md','hard',true);}else{setSizeKey('sm');newPuzzle('sm',diffKey,false);}}}
+            style={{width:48,height:26,borderRadius:13,background:extremeMode?'rgba(176,128,255,0.3)':'rgba(255,255,255,0.06)',border:`2px solid ${extremeMode?'#b080ff':'#334'}`,cursor:'pointer',position:'relative',transition:'all .2s',flexShrink:0}}>
+            <div style={{position:'absolute',top:2,left:extremeMode?22:2,width:18,height:18,borderRadius:'50%',background:extremeMode?'#b080ff':'#445',transition:'left .2s'}}/>
           </div>
         </div>
 
@@ -863,19 +923,19 @@ function QueensGame(){
 
     const tabBtn=(view,label)=>(
       <button onClick={()=>setStatsView(view)} style={{flex:1,padding:'11px 0',border:'none',background:'none',cursor:'pointer',
-        fontWeight:700,fontSize:14,color:statsView===view?'#64b4ff':'#445',
-        borderBottom:statsView===view?'2px solid #64b4ff':'2px solid transparent'}}>
+        fontWeight:700,fontSize:14,color:statsView===view?T.accent:'#445',
+        borderBottom:statsView===view?`2px solid ${T.accent}`:'2px solid transparent'}}>
         {label}
       </button>
     );
 
     return(
       <div onClick={()=>setShowStats(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-        <div onClick={e=>e.stopPropagation()} style={{background:'#16213e',border:'1px solid #334',borderRadius:16,width:'100%',maxWidth:420,overflow:'hidden',maxHeight:'85vh',display:'flex',flexDirection:'column'}}>
-          <h2 style={{margin:0,padding:'18px 24px 14px',color:'#fff',fontSize:18,letterSpacing:2,textAlign:'center',borderBottom:'1px solid #223',flexShrink:0}}>♛ Statistik</h2>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:16,width:'100%',maxWidth:420,overflow:'hidden',maxHeight:'85vh',display:'flex',flexDirection:'column'}}>
+          <h2 style={{margin:0,padding:'18px 24px 14px',color:'#fff',fontSize:18,letterSpacing:2,textAlign:'center',borderBottom:`1px solid ${T.borderDim}`,flexShrink:0}}>♛ Statistik</h2>
 
           {/* Two main tabs */}
-          <div style={{display:'flex',borderBottom:'1px solid #223',flexShrink:0}}>
+          <div style={{display:'flex',borderBottom:`1px solid ${T.borderDim}`,flexShrink:0}}>
             {tabBtn('history','🕐 Verlauf')}
             {tabBtn('records','🏆 Rekorde')}
           </div>
@@ -887,7 +947,7 @@ function QueensGame(){
               <div style={{padding:'8px 0'}}>
                 {SIZES.map(s=>(
                   <div key={s.key}>
-                    <div style={{padding:'10px 20px 4px',color:'#64b4ff',fontWeight:700,fontSize:13,letterSpacing:1}}>{s.label} ({s.n}×{s.n})</div>
+                    <div style={{padding:'10px 20px 4px',color:T.accent,fontWeight:700,fontSize:13,letterSpacing:1}}>{s.label} ({s.n}×{s.n})</div>
                     {DIFFS.map(d=>{
                       const countKey=`${s.key}_${d.key}_count`;const bestKey=`${s.key}_${d.key}_best`;
                       const count=stats[countKey]||0;const best=stats[bestKey];
@@ -920,6 +980,7 @@ function QueensGame(){
                           <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
                             <span style={{color:'#fff',fontWeight:700,fontSize:13}}>{sizeLabel[entry.sk]||entry.sk}, {diffLabel[entry.dk]||entry.dk}</span>
                             {entry.isChallenge&&<span style={{fontSize:11,color:'#f09090'}}>⚔️</span>}
+                            {entry.isExtreme&&<span style={{fontSize:10,fontWeight:700,letterSpacing:1,color:'#b080ff',background:'rgba(160,100,255,0.15)',border:'1px solid #b080ff55',borderRadius:4,padding:'1px 5px'}}>EXTREM</span>}
                           </div>
                           <div style={{color:'#556',fontSize:11,marginTop:2}}>{dateStr} · {timeStr}</div>
                           <div style={{display:'flex',gap:8,marginTop:3,alignItems:'center'}}>
@@ -961,9 +1022,8 @@ function QueensGame(){
     <div style={{minHeight:'100vh',
       background: challengeMode
         ? 'linear-gradient(135deg,#1a0a0a,#2d0f0f,#1a0a0a)'
-        : 'linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)',
+        : T.bg,
       display:'flex',flexDirection:'column',alignItems:'center',paddingTop:20,paddingBottom:40,paddingLeft:16,paddingRight:16,boxSizing:'border-box',fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
-
       {showStats&&<StatsModal/>}
       {shareModal&&<ShareModal/>}
       {settingsModalEl}
@@ -986,30 +1046,30 @@ function QueensGame(){
 
       {/* Header */}
       <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,marginBottom:14,position:'relative',width:'100%'}}>
-        {!challengeMode&&<button onClick={()=>setShowStats(true)} style={{position:'absolute',left:0,height:36,padding:'0 12px',borderRadius:10,border:'2px solid #44444466',background:'rgba(255,255,255,0.05)',color:'#889',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>📊</button>}
-        <h1 style={{margin:0,fontSize:30,fontWeight:800,letterSpacing:3,color:'#fff',textShadow: challengeMode?'0 0 30px rgba(255,80,80,0.5)':'0 0 30px rgba(100,180,255,0.4)'}}>
+        {!challengeMode&&<button onClick={()=>setShowStats(true)} style={{position:'absolute',left:0,height:36,padding:'0 12px',borderRadius:10,border:`2px solid ${T.border}`,background:`rgba(${T.accentRgb},0.06)`,color:T.text,fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>📊</button>}
+        <h1 style={{margin:0,fontSize:30,fontWeight:800,letterSpacing:3,color:'#fff',textShadow:challengeMode?'0 0 30px rgba(255,80,80,0.5)':`0 0 30px ${T.glow}`}}>
           {challengeMode?'⚔️ CHALLENGE ⚔️':'♛ QUEENS'}
         </h1>
-        {!challengeMode&&<button onClick={()=>{setSettingsName(playerName);setShowSettings(true);}} style={{position:'absolute',right:0,height:36,padding:'0 12px',borderRadius:10,border:'2px solid #44444466',background:'rgba(255,255,255,0.05)',color:'#889',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>⚙️</button>}
+        {!challengeMode&&<button onClick={()=>{setSettingsName(playerName);setShowSettings(true);}} style={{position:'absolute',right:0,height:36,padding:'0 12px',borderRadius:10,border:`2px solid ${T.border}`,background:`rgba(${T.accentRgb},0.06)`,color:T.text,fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>⚙️</button>}
       </div>
 
       {/* Size + Difficulty selectors — normal mode only */}
       {!challengeMode&&(
         <div style={{display:'flex',flexDirection:'column',gap:8,alignItems:'center',marginBottom:14}}>
           <div style={{display:'flex',gap:8}}>
-            {SIZES.map(s=>(
-              <button key={s.key} onClick={()=>{playSound('nav');setSizeKey(s.key);newPuzzle(s.key,diffKey);}} style={btnStyle(sizeKey===s.key,'#64b4ff')}>
+            {SIZES.filter(s=>!(extremeMode&&s.key==='sm')).map(s=>(
+              <button key={s.key} onClick={()=>{playSound('nav');setSizeKey(s.key);newPuzzle(s.key,diffKey);}} style={btnStyle(sizeKey===s.key,T.accent)}>
                 {s.label}<br/><span style={{fontSize:10,fontWeight:400,opacity:0.6}}>{s.n}×{s.n}</span>
               </button>
             ))}
           </div>
-          <div style={{display:'flex',gap:8}}>
+          {!extremeMode&&<div style={{display:'flex',gap:8}}>
             {DIFFS.map(d=>(
-              <button key={d.key} onClick={()=>{playSound('nav');setDiffKey(d.key);newPuzzle(sizeKey,d.key);}} style={btnStyle(diffKey===d.key,'#b0a0f0')}>
+              <button key={d.key} onClick={()=>{playSound('nav');setDiffKey(d.key);newPuzzle(sizeKey,d.key);}} style={btnStyle(diffKey===d.key,T.accent)}>
                 {d.label}
               </button>
             ))}
-          </div>
+          </div>}
         </div>
       )}
 
