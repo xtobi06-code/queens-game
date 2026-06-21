@@ -1040,9 +1040,9 @@ function QueensGame(){
                         <MiniGrid enc={entry.enc} n={entry.n}/>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-                            <span style={{color:'#fff',fontWeight:700,fontSize:13}}>{sizeLabel[entry.sk]||entry.sk}, {diffLabel[entry.dk]||entry.dk}</span>
-                            {entry.isChallenge&&<span style={{fontSize:11,color:'#f09090'}}>⚔️</span>}
+                            <span style={{color:'#fff',fontWeight:700,fontSize:13}}>{sizeLabel[entry.sk]||entry.sk}{entry.isExtreme?'':`, ${diffLabel[entry.dk]||entry.dk}`}</span>
                             {entry.isExtreme&&<span style={{fontSize:10,fontWeight:700,letterSpacing:1,color:'#b080ff',background:'rgba(160,100,255,0.15)',border:'1px solid #b080ff55',borderRadius:4,padding:'1px 5px'}}>EXTREM</span>}
+                            {entry.isChallenge&&<span style={{fontSize:11,color:'#f09090'}}>⚔️</span>}
                           </div>
                           <div style={{color:'#556',fontSize:11,marginTop:2}}>{dateStr} · {timeStr}</div>
                           <div style={{display:'flex',gap:8,marginTop:3,alignItems:'center'}}>
