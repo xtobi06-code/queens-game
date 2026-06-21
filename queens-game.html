@@ -518,6 +518,7 @@ function QueensGame(){
     const sk=p.get('s')||p.get('sk')||'sm';
     const dk=p.get('d')||p.get('dk')||'easy';
     const bt=parseInt(p.get('t')||p.get('bt')||'0',10);
+    const isExtremeChallenge=p.get('x')==='1';
     if(enc){
       const sObj=SIZES.find(s=>s.key===sk)||SIZES[0];
       const n=sObj.n;
@@ -528,7 +529,7 @@ function QueensGame(){
         setPuzzle({n,regions,solution,score:0});
         setChallengeMode(true);
         setChallengeReady(false);
-        setChallengeMeta({n,sizeKey:sk,diffKey:dk,from,bestTime:bt});
+        setChallengeMeta({n,sizeKey:sk,diffKey:dk,from,bestTime:bt,isExtreme:isExtremeChallenge});
         setSizeKey(sk);setDiffKey(dk);
         return;
       }catch(e){console.error('Bad challenge link',e);}
@@ -633,8 +634,9 @@ function QueensGame(){
     const enc=encodeGrid(puzzle.n,puzzle.regions);
     const bt=solved?timer:0;
     const from=encodeURIComponent(playerName||'');
-    // compact params: c=grid, s=size, d=diff, f=from, t=time
+    // compact params: c=grid, s=size, d=diff, f=from, t=time, x=extreme
     let url=`${location.origin}${location.pathname}?c=${enc}&s=${sk}&d=${diffKey}`;
+    if(extremeMode)url+=`&x=1`;
     if(from)url+=`&f=${from}`;
     if(bt)url+=`&t=${bt}`;
     setShareModal({url,bestTime:bt});
@@ -700,7 +702,7 @@ function QueensGame(){
   if(challengeMode&&!challengeReady&&puzzle){
     const meta=challengeMeta||{};
     const sLabel=SIZES.find(s=>s.key===meta.sizeKey)?.label||'?';
-    const dLabel=DIFFS.find(d=>d.key===meta.diffKey)?.label||'?';
+    const dLabel=meta.isExtreme?'Extrem':(DIFFS.find(d=>d.key===meta.diffKey)?.label||'?');
     return(
       <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Segoe UI',system-ui,sans-serif",padding:24}}>
         <div style={{background:'#16213e',border:'2px solid #e8c060',borderRadius:20,padding:'40px 36px',maxWidth:340,width:'100%',textAlign:'center'}}>
@@ -762,10 +764,14 @@ function QueensGame(){
     };
     const nativeShare=()=>{
       const sLabel=(SIZES.find(s=>s.n===puzzle.n)?.label||'').toLowerCase();
-      const dLabel=(DIFFS.find(d=>d.key===diffKey)?.label||'').toLowerCase();
-      // accusative ending: "einen einfachen", "ein schweres" → use -n form
-      const dAdj=dLabel==='einfach'?'einfachen':dLabel==='schwer'?'schweren':dLabel;
-      const desc=`${dAdj} ${puzzle.n}×${puzzle.n} Queens`;
+      let desc;
+      if(extremeMode){
+        desc=`extremes ${puzzle.n}×${puzzle.n} Queens`;
+      } else {
+        const dLabel=(DIFFS.find(d=>d.key===diffKey)?.label||'').toLowerCase();
+        const dAdj=dLabel==='einfach'?'einfachen':dLabel==='schwer'?'schweren':dLabel;
+        desc=`${dAdj} ${puzzle.n}×${puzzle.n} Queens`;
+      }
       const intro=playerName?`${playerName} fordert dich zu einem ${desc} heraus!`:`Du wirst zu einem ${desc} herausgefordert!`;
       const text=`${intro}\n\n${url}`;
       navigator.share({title:'Queens Challenge',text}).catch(()=>{});
@@ -806,7 +812,7 @@ function QueensGame(){
     if(!puzzle||!challengeMeta)return;
     const won = !gaveUp && challengeMeta.bestTime > 0 && timer < challengeMeta.bestTime;
     const sLabel=SIZES.find(s=>s.n===puzzle.n)?.label||'';
-    const dLabel=DIFFS.find(d=>d.key===diffKey)?.label||'';
+    const dLabel=challengeMeta.isExtreme?'Extrem':(DIFFS.find(d=>d.key===diffKey)?.label||'');
     const circPal=['🔵','🟢','🟠','🟣','🔴','🟡','🔵','🟤','🟣','🟢','🔴'];
     // build emoji grid using actual puzzle regions + solution
     let grid='';
@@ -1101,7 +1107,7 @@ function QueensGame(){
       {/* Challenge meta banner */}
       {challengeMode&&challengeMeta&&(
         <div style={{marginBottom:4,padding:'8px 20px',borderRadius:12,background:'rgba(232,192,96,0.18)',border:'1px solid #e8c06099',textAlign:'center'}}>
-          <div style={{color:'#c0a060',fontSize:12}}>{SIZES.find(s=>s.key===challengeMeta.sizeKey)?.label} · {DIFFS.find(d=>d.key===challengeMeta.diffKey)?.label}</div>
+          <div style={{color:'#c0a060',fontSize:12}}>{SIZES.find(s=>s.key===challengeMeta.sizeKey)?.label} · {challengeMeta.isExtreme?'Extrem':DIFFS.find(d=>d.key===challengeMeta.diffKey)?.label}</div>
           {challengeMeta.bestTime>0&&<div style={{color:'#ffd870',fontSize:14,fontWeight:700}}>⏱ Zu schlagen: {fmtTime(challengeMeta.bestTime)}</div>}
         </div>
       )}
