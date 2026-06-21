@@ -178,6 +178,31 @@ function logicSolve(n,regions){
       if(cells.length===1){place(cells[0][0],cells[0][1]);changed=true;}
     }
     if(changed)continue;
+    // Adjacency dominance: if every remaining candidate of a region/row/col would
+    // attack a given empty cell, that cell can never hold a queen → eliminate it.
+    const candCellsRegion=(reg)=>{const a=[];for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(regions[r][c]===reg&&possible[r][c])a.push([r,c]);return a;};
+    const candCellsRow=(row)=>{const a=[];for(let c=0;c<n;c++)if(possible[row][c])a.push([row,c]);return a;};
+    const candCellsCol=(col)=>{const a=[];for(let r=0;r<n;r++)if(possible[r][col])a.push([r,col]);return a;};
+    const attacks=(qr,qc,r,c)=>{
+      if(qr===r&&qc===c)return false;
+      if(qr===r||qc===c)return true;
+      if(Math.abs(qr-r)<=1&&Math.abs(qc-c)<=1)return true;
+      return false;
+    };
+    const applyDominance=(cands)=>{
+      if(cands.length<1)return;
+      for(let r=0;r<n;r++)for(let c=0;c<n;c++){
+        if(!possible[r][c])continue;
+        if(cands.some(([qr,qc])=>qr===r&&qc===c))continue;
+        if(cands.every(([qr,qc])=>attacks(qr,qc,r,c))){
+          if(elim(r,c))changed=true;
+        }
+      }
+    };
+    for(let reg=0;reg<n&&!changed;reg++)if(!regUsed[reg])applyDominance(candCellsRegion(reg));
+    for(let row=0;row<n&&!changed;row++)if(placed[row]===-1)applyDominance(candCellsRow(row));
+    for(let col=0;col<n&&!changed;col++)if(!colUsed[col])applyDominance(candCellsCol(col));
+    if(changed)continue;
     // Region confined to a single row or column → clear other regions there
     for(let reg=0;reg<n;reg++){
       if(regUsed[reg])continue;
@@ -239,13 +264,13 @@ function logicSolve(n,regions){
 
 function generatePuzzle(n, diffKey, extreme){
   const isExtreme=extreme&&diffKey==='hard';
-  const count=isExtreme?(n<=7?8:n<=9?7:6):(n<=7?4:n<=9?4:3);
-  const overall=Date.now()+(isExtreme?(n>=11?28000:20000):(n>=11?10000:7000));
+  const count=isExtreme?(n<=9?3:2):(n<=7?4:n<=9?4:3);
+  const overall=Date.now()+(isExtreme?(n>=11?30000:22000):(n>=11?10000:7000));
   const candidates=[];
   while(candidates.length<count&&Date.now()<overall){
     const c=genCandidate(n);
     if(!c)continue;
-    // In extreme mode, only keep puzzles that need backtracking
+    // In extreme mode, only keep puzzles that need backtracking (our strong solver gets stuck)
     if(isExtreme&&logicSolve(n,c.regions)==='solved')continue;
     candidates.push(c);
   }
