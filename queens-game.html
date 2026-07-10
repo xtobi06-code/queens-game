@@ -548,7 +548,7 @@ function QueensGame(){
       id, ts:Date.now(), sk, dk:dk||diffKey, n:p.n,
       enc:encodeGrid(p.n,p.regions),
       status:'started', timer:0, isChallenge:!!(cm??challengeMode),
-      isExtreme:!!(extremeMode&&(dk||diffKey)==='hard'),
+      isExtreme:!!(extremeMode&&(dk||diffKey)==='hard')||(challengeMode&&!!challengeMeta?.isExtreme),
     };
     upsertHistory(entry);
     histEntryRef.current=id;
@@ -569,12 +569,9 @@ function QueensGame(){
       if(histEntryRef.current)upsertHistory({id:histEntryRef.current,status:'solved',timer,cells:JSON.stringify(next)});
       const sk2=SIZES.find(x=>x.n===p.n)?.key||sizeKey;
       const isExtremeChallenge=challengeMode&&challengeMeta?.isExtreme;
-      if(!challengeMode||isExtremeChallenge){
-        // use 'extreme' as key for extreme mode or extreme challenges
-        const statsKey=(extremeMode||isExtremeChallenge)?`${sk2}_extreme`:`${sk2}_${diffKey}`;
-        const countKey=`${statsKey}_count`;const bestKey=`${statsKey}_best`;
-        setStats(prev=>{const nx={...prev};nx[countKey]=(nx[countKey]||0)+1;if(!nx[bestKey]||timer<nx[bestKey])nx[bestKey]=timer;saveStats(nx);return nx;});
-      }
+      const statsKey=(extremeMode||isExtremeChallenge)?`${sk2}_extreme`:`${sk2}_${diffKey}`;
+      const countKey=`${statsKey}_count`;const bestKey=`${statsKey}_best`;
+      setStats(prev=>{const nx={...prev};nx[countKey]=(nx[countKey]||0)+1;if(!nx[bestKey]||timer<nx[bestKey])nx[bestKey]=timer;saveStats(nx);return nx;});
     }
   };
 
